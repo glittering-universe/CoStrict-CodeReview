@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type Tool, experimental_createMCPClient } from 'ai'
@@ -29,31 +30,42 @@ export class MCPClientManager {
     try {
       const workspacePath = await getGitRoot()
       const config: MCPConfig = { mcpServers: {} }
+      let loadedAnyConfig = false
 
       // Try to load from .shippie/mcp.json
-      try {
-        const shippieConfigPath = join(workspacePath, '.shippie', 'mcp.json')
-        const shippieConfigContent = await readFile(shippieConfigPath, 'utf-8')
-        const shippieConfig = JSON.parse(shippieConfigContent) as MCPConfig
-        config.mcpServers = { ...config.mcpServers, ...shippieConfig.mcpServers }
-        logger.info('Loaded MCP config from .shippie/mcp.json')
-      } catch (error) {
-        logger.debug(`No .shippie/mcp.json found or error reading it: ${error}`)
+      const shippieConfigPath = join(workspacePath, '.shippie', 'mcp.json')
+      if (existsSync(shippieConfigPath)) {
+        try {
+          const shippieConfigContent = await readFile(shippieConfigPath, 'utf-8')
+          const shippieConfig = JSON.parse(shippieConfigContent) as MCPConfig
+          config.mcpServers = { ...config.mcpServers, ...shippieConfig.mcpServers }
+          loadedAnyConfig = true
+          logger.info(`Loaded MCP config from ${shippieConfigPath}`)
+        } catch (error) {
+          logger.warn(`Found .shippie/mcp.json but failed to read it: ${error}`)
+        }
+      } else {
+        logger.debug(`No MCP config found at ${shippieConfigPath}`)
       }
 
       // Try to load from .cursor/mcp.json
-      try {
-        const cursorConfigPath = join(workspacePath, '.cursor', 'mcp.json')
-        const cursorConfigContent = await readFile(cursorConfigPath, 'utf-8')
-        const cursorConfig = JSON.parse(cursorConfigContent) as MCPConfig
-        config.mcpServers = { ...config.mcpServers, ...cursorConfig.mcpServers }
-        logger.info('Loaded MCP config from .cursor/mcp.json')
-      } catch (error) {
-        logger.debug(`No .cursor/mcp.json found or error reading it: ${error}`)
+      const cursorConfigPath = join(workspacePath, '.cursor', 'mcp.json')
+      if (existsSync(cursorConfigPath)) {
+        try {
+          const cursorConfigContent = await readFile(cursorConfigPath, 'utf-8')
+          const cursorConfig = JSON.parse(cursorConfigContent) as MCPConfig
+          config.mcpServers = { ...config.mcpServers, ...cursorConfig.mcpServers }
+          loadedAnyConfig = true
+          logger.info(`Loaded MCP config from ${cursorConfigPath}`)
+        } catch (error) {
+          logger.warn(`Found .cursor/mcp.json but failed to read it: ${error}`)
+        }
+      } else {
+        logger.debug(`No MCP config found at ${cursorConfigPath}`)
       }
 
       // If no configs were found, set config to null
-      if (Object.keys(config.mcpServers).length === 0) {
+      if (!loadedAnyConfig) {
         logger.warn('No MCP configuration found in .shippie/mcp.json or .cursor/mcp.json')
         this.config = null
         return

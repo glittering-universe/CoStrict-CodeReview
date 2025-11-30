@@ -1,7 +1,7 @@
 import { exec } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { exit } from 'node:process'
+
 
 import type { LineRange, ReviewFile } from '../types'
 import { logger } from '../utils/logger'
@@ -116,7 +116,7 @@ export const getFilesWithChanges = async (
       logger.warn(
         'No changes found between refs. Ensure changes are staged (if local) or refs are correct (if CI).'
       )
-      exit(0)
+      return []
     }
 
     const changedLinesMap = parseCombinedDiff(rawCombinedDiff, gitRoot)
@@ -126,7 +126,7 @@ export const getFilesWithChanges = async (
 
     if (fileNames.length === 0) {
       logger.warn('Parsed diff but found no file changes. Check diff command output.')
-      exit(0)
+      return []
     }
 
     const filesPromises = fileNames.map(async (fileName) => {

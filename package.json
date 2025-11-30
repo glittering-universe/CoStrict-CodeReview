@@ -13,6 +13,7 @@
     },
     "scripts": {
         "start": "bun run ./src/index.ts",
+        "start:web": "bun run ./src/server.ts",
         "review": "bun run ./src/index.ts review",
         "configure": "bun run ./src/index.ts configure",
         "test:e2e": "bun test src/specs/scenarios.test.ts --concurrent",
@@ -56,6 +57,7 @@
         "ai": "^4.3.15",
         "dotenv": "^16.3.1",
         "gray-matter": "^4.0.3",
+        "hono": "^4.10.7",
         "octokit": "^3.1.0",
         "picocolors": "^1.1.1",
         "picomatch": "^4.0.2",

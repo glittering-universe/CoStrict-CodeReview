@@ -7,7 +7,7 @@ import { scenarioRegistry } from './scenarios'
 logger.settings.minLevel = 3 // 0: silly, 1: trace, 2: debug, 3: info, 4: warn, 5: error, 6: fatal
 
 describe('E2E Scenario Tests', () => {
-  const runner = new ScenarioRunner('openai:gpt-4.1-mini', 25)
+  const runner = new ScenarioRunner('openai:glm-4.5-flash', 25)
 
   // Test all registered scenarios
   for (const scenario of scenarioRegistry.getAll()) {

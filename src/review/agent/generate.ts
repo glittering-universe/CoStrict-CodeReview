@@ -11,7 +11,8 @@ export const reviewAgent = async (
   model: LanguageModelV1,
   maxSteps: number,
   tools: Record<string, Tool>,
-  onSummarySubmit?: () => void
+  onSummarySubmit?: () => void,
+  onStep?: (step: any) => void
   // biome-ignore lint/suspicious/noExplicitAny: fine
 ): Promise<GenerateTextResult<Record<string, any>, string>> => {
   return generateText({
@@ -29,6 +30,10 @@ export const reviewAgent = async (
       if (summaryToolUsed && onSummarySubmit) {
         logger.debug('Detected submit_summary tool usage in step, triggering callback.')
         onSummarySubmit()
+      }
+
+      if (onStep) {
+        onStep(step)
       }
     },
   })
