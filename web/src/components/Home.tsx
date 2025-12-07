@@ -36,8 +36,8 @@ export function Home({
             className="flex flex-col items-center justify-center gap-8 w-full max-w-3xl min-h-[60vh] mx-auto"
         >
             <div className="text-center space-y-4">
-                <h1 className="hero-title text-6xl md:text-8xl">SHIPPIE</h1>
-                <p className="subtitle">What can I review for you today?</p>
+                <h1 className="hero-title text-6xl md:text-8xl">CoStrict-Code Review</h1>
+                <p className="subtitle">今天我可以为您审查什么代码？</p>
             </div>
 
             <div className="w-full relative">
@@ -56,7 +56,7 @@ export function Home({
                         onChange={(e) => setModelString(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && startReview()}
                         className="chat-input"
-                        placeholder="Enter model (e.g. openai:glm-4-flash)..."
+                        placeholder="输入模型名称 (例如: openai:glm-4-flash)..."
                     />
 
                     <button
@@ -65,7 +65,7 @@ export function Home({
                             setActiveSession(null)
                         }}
                         className="action-btn"
-                        title="Clear / New Session"
+                        title="清除 / 新建会话"
                     >
                         <Plus className="w-5 h-5" />
                     </button>
@@ -83,12 +83,12 @@ export function Home({
             <div className="history-section w-full">
                 <div className="history-header">
                     <div className="session-chip">
-                        <BookOpen className="w-4 h-4" /> Recent Reviews
+                        <BookOpen className="w-4 h-4" /> 最近审查
                     </div>
                 </div>
                 {history.length === 0 ? (
                     <div className="empty-state">
-                        <p>No saved history yet. Run your first review to see it here.</p>
+                        <p>暂无保存的历史记录。运行您的第一次审查后，结果将显示在这里。</p>
                     </div>
                 ) : (
                     <div className="history-grid">
@@ -111,7 +111,7 @@ export function Home({
                                 </div>
                                 <div className="history-footer">
                                     <button className="ghost-btn" onClick={() => onOpenHistorySession(session)}>
-                                        View
+                                        查看
                                     </button>
                                 </div>
                             </div>

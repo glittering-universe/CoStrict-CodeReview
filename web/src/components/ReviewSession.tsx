@@ -45,10 +45,10 @@ export function ReviewSession({
     }
 
     const statusLabel = activeSession?.isReviewing
-        ? 'Running'
+        ? '运行中'
         : activeSession?.finalResult
-            ? 'Complete'
-            : 'Waiting'
+            ? '已完成'
+            : '等待中'
 
     const statusVariant = activeSession?.isReviewing
         ? 'running'
@@ -56,6 +56,54 @@ export function ReviewSession({
             ? 'done'
             : 'idle'
 
+    const apiKey = import.meta.env.OPENAI_API_KEY;
+    const apiBase = import.meta.env.OPENAI_API_BASE;
+
+    const performCodeReview = async (code: string, language: string) => {
+    try {
+        const response = await fetch(`${apiBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: 'glm-4', // 或其他模型名称
+            messages: [
+            {
+                role: 'system',
+                content: '你是一个专业的代码审查助手，请对提供的代码进行分析和审查。'
+            },
+            {
+                role: 'user',
+                content: `请审查以下${language}代码：\n\n${code}`
+            }
+            ],
+            temperature: 0.3,
+        }),
+        });
+
+        if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('代码审查请求失败:', error);
+        throw error;
+    }
+    };
+
+    // 在组件中使用
+    const handleReview = async () => {
+    try {
+        const reviewResult = await performCodeReview(currentCode, currentLanguage);
+        setReviewResults(reviewResult);
+    } catch (error) {
+        setError('代码审查失败，请检查API配置');
+    }
+    };
     const lastUpdateTimestamp = activeSession
         ? (activeSession.logs[activeSession.logs.length - 1]?.timestamp ?? activeSession.startTime)
         : null
@@ -66,7 +114,7 @@ export function ReviewSession({
 
     const fileCount = activeSession?.files.length ?? 0
     const stepsCount = activeSession?.logs.length ?? 0
-    const modelName = activeSession?.modelString ?? 'Not started'
+    const modelName = activeSession?.modelString ?? '未开始'
 
     return (
         <motion.div
@@ -94,7 +142,7 @@ export function ReviewSession({
             <div className="session-overview">
                 <div className="overview-card">
                     <div className="overview-label">
-                        <Activity className="w-4 h-4" /> Status
+                        <Activity className="w-4 h-4" /> 状态
                     </div>
                     <div className={`status-pill ${statusVariant}`}>
                         {statusVariant === 'done' ? <CheckCircle2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
@@ -103,19 +151,19 @@ export function ReviewSession({
                 </div>
                 <div className="overview-card">
                     <div className="overview-label">
-                        <Clock3 className="w-4 h-4" /> Elapsed
+                        <Clock3 className="w-4 h-4" /> 已用时间
                     </div>
                     <div className="overview-value">{elapsedLabel}</div>
                 </div>
                 <div className="overview-card">
                     <div className="overview-label">
-                        <FileText className="w-4 h-4" /> Files
+                        <FileText className="w-4 h-4" /> 文件
                     </div>
                     <div className="overview-value">{fileCount}</div>
                 </div>
                 <div className="overview-card">
                     <div className="overview-label">
-                        <Sparkles className="w-4 h-4" /> Steps
+                        <Sparkles className="w-4 h-4" /> 步骤
                     </div>
                     <div className="overview-value">{stepsCount}</div>
                 </div>
@@ -124,8 +172,8 @@ export function ReviewSession({
             <div className="timeline-card">
                 <div className="timeline-card-header">
                     <div>
-                        <p className="timeline-title">Progress Updates</p>
-                        <p className="timeline-subtitle">Live agent status and tool activity</p>
+                        <p className="timeline-title">进度更新</p>
+                        <p className="timeline-subtitle">实时代理状态和工具活动</p>
                     </div>
                     <button
                         onClick={toggleExpandAll}
@@ -134,12 +182,12 @@ export function ReviewSession({
                         {expandAll ? (
                             <>
                                 <ChevronsUp className="w-4 h-4" />
-                                Collapse all
+                                全部折叠
                             </>
                         ) : (
                             <>
                                 <ChevronsDown className="w-4 h-4" />
-                                Expand all
+                                全部展开
                             </>
                         )}
                     </button>
@@ -182,7 +230,7 @@ export function ReviewSession({
                 >
                     <div className="final-report-header">
                         <Sparkles className="w-4 h-4" />
-                        Review Complete
+                        审查完成
                     </div>
                     <ReactMarkdown>{activeSession.finalResult}</ReactMarkdown>
                 </motion.div>

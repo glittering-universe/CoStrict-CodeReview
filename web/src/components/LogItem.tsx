@@ -63,7 +63,7 @@ interface LogItemProps {
 
 export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }: LogItemProps) {
     const formatToolArgs = (args: unknown) => {
-        if (args === undefined || args === null) return 'No arguments provided.'
+        if (args === undefined || args === null) return '未提供参数。'
         if (typeof args === 'string') return args
         try {
             return JSON.stringify(args, null, 2)
@@ -109,7 +109,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
             >
                 <div className="progress-step-number">{displayableIndex}</div>
                 <div className="progress-step-content">
-                    Found {log.files?.length} files to review
+                    发现 {log.files?.length} 个文件待审查
                 </div>
             </motion.div>
         )
@@ -119,7 +119,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
         const toolCount = log.step.toolCalls?.length || 0
 
         const { cleanText, jsonBlocks } = extractJsonBlocks(log.step.text)
-        const displayText = cleanText || log.step.text || `Processing step with ${toolCount} tool${toolCount !== 1 ? 's' : ''}`
+        const displayText = cleanText || log.step.text || `处理包含 ${toolCount} 个工具${toolCount !== 1 ? 's' : ''} 的步骤`
 
         return (
             <motion.div
@@ -135,7 +135,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
                             {displayText}
                             {toolCount > 0 && (
                                 <div className="log-meta">
-                                    <span className="tool-pill">{toolCount} tool{toolCount !== 1 ? 's' : ''}</span>
+                                    <span className="tool-pill">{toolCount} 个工具{toolCount !== 1 ? 's' : ''}</span>
                                 </div>
                             )}
                             {jsonBlocks.length > 0 && (
@@ -174,8 +174,8 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
                                     {log.step.toolCalls.map((tool, j) => (
                                         <div key={`${tool.toolName ?? 'tool'}-${j}`} className="tool-detail-card">
                                             <div className="tool-detail-header">
-                                                <span>{tool.toolName ?? `Tool ${j + 1}`}</span>
-                                                <span className="tool-pill">Call #{j + 1}</span>
+                                                <span>{tool.toolName ?? `工具 ${j + 1}`}</span>
+                                                <span className="tool-pill">调用 #{j + 1}</span>
                                             </div>
                                             <pre className="tool-detail-body">
                                                 {formatToolArgs(tool.args)}

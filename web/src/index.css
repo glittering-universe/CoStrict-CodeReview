@@ -1,23 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
 
 :root {
-  /* LUMINA Palette */
-  --bg-gradient-start: #2e2e5e;
-  --bg-gradient-end: #1a1a3a;
-  --text-primary: #aaffd0;
-  /* Mint Green */
-  --text-secondary: #e0e0e0;
+  /* CoStrict-Code Review 调色板 */
+  --bg-gradient-start: #1a365d;
+  --bg-gradient-end: #0c1e3d;
+  --text-primary: #81e6d9;
+  /* 蓝绿色 */
+  --text-secondary: #e2e8f0;
   --text-muted: #94a3b8;
-  --accent: #aaffd0;
-  /* Mint Green */
-  --accent-secondary: #e0e080;
-  /* Pale Yellow */
-  --card-bg: rgba(30, 41, 59, 0.4);
-  --card-border: rgba(170, 255, 208, 0.1);
+  --accent: #81e6d9;
+  /* 蓝绿色 */
+  --accent-secondary: #4299e1;
+  /* 蓝色 */
+  --card-bg: rgba(26, 32, 44, 0.4);
+  --card-border: rgba(129, 230, 217, 0.1);
   --success: #10b981;
-  --error: #ef4444;
+  --error: #f56565;
   --radius: 0.75rem;
-  /* Rounded corners for softer, premium feel */
+  /* 圆角，更柔和、更高级的感觉 */
   --radius-sm: 0.5rem;
   --radius-lg: 1rem;
   --radius-full: 9999px;
@@ -27,7 +27,7 @@
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: linear-gradient(to bottom, var(--bg-gradient-start), var(--bg-gradient-end));
+  background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end));
   background-attachment: fixed;
   color: var(--text-secondary);
   -webkit-font-smoothing: antialiased;
@@ -123,21 +123,21 @@ body {
   transform: translate3d(0, -1px, 0);
 }
 
-/* Marquee */
+/* Marquee 跑马灯 */
 .marquee-container {
   position: fixed;
   left: 0;
   width: 100vw;
   overflow: hidden;
-  background: white;
-  color: black;
+  background: rgba(26, 32, 44, 0.9);
+  color: var(--accent);
   padding: 0.5rem 0;
   font-weight: 800;
   text-transform: uppercase;
   font-size: 1.5rem;
   white-space: nowrap;
-  border-top: 1px solid black;
-  border-bottom: 1px solid black;
+  border-top: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--card-border);
   z-index: 50;
 }
 
@@ -255,7 +255,7 @@ h1.hero-title {
   padding: 0.2rem 0.4rem;
   border-radius: 0;
   font-family: 'JetBrains Mono', monospace;
-  color: var(--accent-secondary);
+  color: var(--accent);
   font-size: 0.9em;
 }
 
@@ -324,7 +324,7 @@ h1.hero-title {
 
 .input-group:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 30px rgba(170, 255, 208, 0.2), 0 12px 45px -10px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 30px rgba(129, 230, 217, 0.2), 0 12px 45px -10px rgba(0, 0, 0, 0.6);
   transform: translate3d(0, -2px, 0);
 }
 
@@ -386,7 +386,7 @@ h1.hero-title {
 
 .send-btn:hover {
   transform: translate3d(0, -2px, 0) scale(1.05);
-  box-shadow: 0 6px 16px rgba(170, 255, 208, 0.4);
+  box-shadow: 0 6px 16px rgba(129, 230, 217, 0.4);
 }
 
 .send-btn:disabled {
@@ -504,7 +504,7 @@ h1.hero-title {
 
 .step-card:hover {
   background: rgba(30, 41, 59, 0.5);
-  border-color: rgba(170, 255, 208, 0.2);
+  border-color: rgba(129, 230, 217, 0.2);
 }
 
 .step-card-interactive {
@@ -518,7 +518,7 @@ h1.hero-title {
 
 .step-card-interactive:hover {
   background: rgba(30, 41, 59, 0.5);
-  border-color: rgba(170, 255, 208, 0.2);
+  border-color: rgba(129, 230, 217, 0.2);
   transform: translate3d(0, -1px, 0);
 }
 
@@ -555,7 +555,7 @@ h1.hero-title {
 .ghost-btn:hover {
   color: var(--text-primary);
   border-color: var(--accent);
-  background: rgba(170, 255, 208, 0.15);
+  background: rgba(129, 230, 217, 0.15);
 }
 
 .ghost-btn:disabled {
@@ -569,8 +569,8 @@ h1.hero-title {
   gap: 0.35rem;
   padding: 0.4rem 0.95rem;
   border-radius: var(--radius-full);
-  border: 1px solid rgba(170, 255, 208, 0.4);
-  background: rgba(170, 255, 208, 0.08);
+  border: 1px solid rgba(129, 230, 217, 0.4);
+  background: rgba(129, 230, 217, 0.08);
   color: var(--accent);
   font-size: 0.8rem;
   letter-spacing: 0.05em;
@@ -618,7 +618,7 @@ h1.hero-title {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(170, 255, 208, 0.25), transparent);
+  background: linear-gradient(135deg, rgba(129, 230, 217, 0.25), transparent);
   mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -721,7 +721,7 @@ h1.hero-title {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(180deg, rgba(170, 255, 208, 0.3), rgba(15, 23, 42, 0));
+  background: linear-gradient(180deg, rgba(129, 230, 217, 0.3), rgba(15, 23, 42, 0));
 }
 
 /* Progress Steps Layout */
@@ -739,7 +739,7 @@ h1.hero-title {
 }
 
 .progress-step-row:hover {
-  border-color: rgba(170, 255, 208, 0.2);
+  border-color: rgba(129, 230, 217, 0.2);
   transform: translateY(-1px);
 }
 
@@ -748,15 +748,15 @@ h1.hero-title {
   width: 2rem;
   height: 2rem;
   border-radius: 999px;
-  background: rgba(170, 255, 208, 0.1);
-  border: 1px solid rgba(170, 255, 208, 0.6);
+  background: rgba(129, 230, 217, 0.1);
+  border: 1px solid rgba(129, 230, 217, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--accent);
-  box-shadow: inset 0 0 12px rgba(170, 255, 208, 0.25);
+  box-shadow: inset 0 0 12px rgba(129, 230, 217, 0.25);
 }
 
 .progress-step-content {
@@ -1088,7 +1088,7 @@ h1.hero-title {
 }
 
 .settings-nav-item.active {
-  background: rgba(170, 255, 208, 0.1);
+  background: rgba(129, 230, 217, 0.1);
   color: var(--accent);
 }
 
@@ -1210,5 +1210,5 @@ h1.hero-title {
 
 .settings-primary-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(170, 255, 208, 0.3);
+  box-shadow: 0 8px 20px rgba(129, 230, 217, 0.3);
 }

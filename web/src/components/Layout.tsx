@@ -22,13 +22,13 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
                 <>
                     <div className="marquee-container marquee-top">
                         <div className="marquee-content">
-                            SHIPPIE 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER • SHIPPIE 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER •
+                            CoStrict-Code Review 2025 • AI 代码审查 • 严格代码检查 • 提高代码质量 • CoStrict-Code Review 2025 • AI 代码审查 • 严格代码检查 • 提高代码质量 •
                         </div>
                     </div>
 
                     <div className="marquee-container marquee-bottom">
                         <div className="marquee-content" style={{ animationDirection: 'reverse' }}>
-                            OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • SHIPPIE 2025 • OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • SHIPPIE 2025 •
+                            优化速度 • 为工程师构建 • CoStrict-Code Review 2025 • 优化速度 • 为工程师构建 • CoStrict-Code Review 2025 •
                         </div>
                     </div>
                 </>
@@ -37,7 +37,7 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
             {/* Header */}
             <header className="fixed top-12 left-0 right-0 p-6 flex justify-between items-center z-40 pointer-events-none">
                 <div className="text-[var(--text-primary)] font-bold text-xl tracking-widest uppercase pointer-events-auto">
-                    Shippie
+                    CoStrict-Code Review
                 </div>
 
                 {/* Active Task Widget */}
@@ -50,7 +50,7 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
                         className="pointer-events-auto bg-[var(--card-bg)] backdrop-blur-md border border-[var(--accent)] rounded-full px-4 py-2 flex items-center gap-2 text-sm text-[var(--accent)] hover:bg-[var(--accent)] hover:text-black transition-colors"
                     >
                         <Activity className="w-4 h-4 animate-pulse" />
-                        Review in Progress...
+                        审查进行中...
                     </motion.button>
                 )}
             </header>

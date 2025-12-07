@@ -1,6 +1,6 @@
-# React + TypeScript + Vite
+# CoStrict-Code Review
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+CoStrict-Code Review 是一个基于 React + TypeScript + Vite 的代码审查工具，提供高效的代码审查体验和智能化的代码分析功能。
 
 Currently, two official plugins are available:
 
