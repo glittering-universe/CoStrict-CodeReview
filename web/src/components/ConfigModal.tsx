@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Settings, Globe, Key, Terminal } from 'lucide-react';
+import { X, Settings, Key } from 'lucide-react';
 
 export interface ConfigSettings {
   apiKey: string;
-  environment: string;
+  environment: string; 
   baseUrl: string;
+  language: 'zh' | 'en';
+  theme: 'dark' | 'light';
 }
 
 interface ConfigModalProps {
@@ -34,11 +36,30 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     onSave(newConfig);
   };
 
+  const t = (text: string) => {
+    const isZh = localConfig.language === 'zh';
+    const dict: Record<string, string> = {
+      'General': isZh ? '通用设置' : 'General',
+      'API Configuration': isZh ? 'API 配置' : 'API Configuration',
+      'Language': isZh ? '语言' : 'Language',
+      'Select the language...': isZh ? '选择界面显示语言。' : 'Select the language for the interface and reviews.',
+      'Theme': isZh ? '主题' : 'Theme',
+      'Choose your preferred...': isZh ? '选择您喜欢的视觉主题。' : 'Choose your preferred visual theme.',
+      'API Key': isZh ? 'API 密钥' : 'API Key',
+      'Your OpenAI...': isZh ? '您的 OpenAI 或兼容的 API 密钥。' : 'Your OpenAI or compatible API key.',
+      'Base URL': isZh ? 'Base URL' : 'Base URL',
+      'Override the default...': isZh ? '覆盖默认的 API 地址。' : 'Override the default API endpoint.',
+      'Save & Close': isZh ? '保存并关闭' : 'Save & Close',
+      // Theme Options
+      'Dark (Deep)': isZh ? '深色 (Deep)' : 'Dark (Deep)',
+      'Light (White)': isZh ? '白色 (White)' : 'Light (White)',
+    };
+    return dict[text] || text;
+  };
+
   const navItems = [
-    { id: 'general', label: 'General', icon: Settings },
-    { id: 'api', label: 'API Configuration', icon: Key },
-    { id: 'environment', label: 'Environment', icon: Globe },
-    { id: 'advanced', label: 'Advanced', icon: Terminal },
+    { id: 'general', label: t('General'), icon: Settings },
+    { id: 'api', label: t('API Configuration'), icon: Key },
   ];
 
   return (
@@ -81,31 +102,39 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">Language</label>
+                      <label className="settings-label">{t('Language')}</label>
                       <p className="settings-description">
-                        Select the language for the interface and reviews.
+                        {t('Select the language...')}
                       </p>
                     </div>
                     <div className="settings-control">
-                      <select className="settings-select">
-                        <option>English</option>
-                        <option>Chinese</option>
-                        <option>Japanese</option>
+                      <select 
+                        className="settings-select"
+                        value={localConfig.language}
+                        onChange={(e) => handleChange('language', e.target.value)}
+                      >
+                        <option value="en">English</option>
+                        <option value="zh">中文</option>
                       </select>
                     </div>
                   </div>
+                  
+                  {/* Theme Selector */}
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">Theme</label>
+                      <label className="settings-label">{t('Theme')}</label>
                       <p className="settings-description">
-                        Choose your preferred visual theme.
+                        {t('Choose your preferred...')}
                       </p>
                     </div>
                     <div className="settings-control">
-                      <select className="settings-select">
-                        <option>Dark</option>
-                        <option>Light</option>
-                        <option>System</option>
+                      <select 
+                        className="settings-select"
+                        value={localConfig.theme}
+                        onChange={(e) => handleChange('theme', e.target.value)}
+                      >
+                        <option value="dark">{t('Dark (Deep)')}</option>
+                        <option value="light">{t('Light (White)')}</option>
                       </select>
                     </div>
                   </div>
@@ -116,9 +145,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">API Key</label>
+                      <label className="settings-label">{t('API Key')}</label>
                       <p className="settings-description">
-                        Your OpenAI or compatible API key.
+                        {t('Your OpenAI...')}
                       </p>
                     </div>
                     <div className="settings-control">
@@ -133,9 +162,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   </div>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">Base URL</label>
+                      <label className="settings-label">{t('Base URL')}</label>
                       <p className="settings-description">
-                        Override the default API endpoint.
+                        {t('Override the default...')}
                       </p>
                     </div>
                     <div className="settings-control">
@@ -144,56 +173,16 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         value={localConfig.baseUrl}
                         onChange={(e) => handleChange('baseUrl', e.target.value)}
                         className="settings-input"
-                        placeholder="https://api.openai.com/v1"
+                        placeholder="https://open.bigmodel.cn/api/paas/v4/"
                       />
                     </div>
                   </div>
                 </>
               )}
 
-              {activeTab === 'environment' && (
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <label className="settings-label">Environment</label>
-                    <p className="settings-description">
-                      Select the execution environment.
-                    </p>
-                  </div>
-                  <div className="settings-control">
-                    <select
-                      value={localConfig.environment}
-                      onChange={(e) => handleChange('environment', e.target.value)}
-                      className="settings-select"
-                    >
-                      <option value="local">Local</option>
-                      <option value="production">Production</option>
-                      <option value="staging">Staging</option>
-                      <option value="development">Development</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'advanced' && (
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <label className="settings-label">Debug Mode</label>
-                    <p className="settings-description">
-                      Enable verbose logging for troubleshooting.
-                    </p>
-                  </div>
-                  <div className="settings-control">
-                    <select className="settings-select">
-                      <option>Off</option>
-                      <option>On</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
               <div className="settings-footer">
                 <button className="settings-primary-btn" onClick={onClose}>
-                  Save & Close
+                  {t('Save & Close')}
                 </button>
               </div>
             </div>

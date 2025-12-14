@@ -8,9 +8,20 @@ interface LayoutProps {
     view: 'home' | 'review'
     setView: (view: 'home' | 'review') => void
     activeSession: ReviewSession | null
+    lang: 'en' | 'zh' // 新增参数
 }
 
-export function Layout({ children, view, setView, activeSession }: LayoutProps) {
+export function Layout({ children, view, setView, activeSession, lang }: LayoutProps) {
+    const t = {
+        reviewing: lang === 'zh' ? '审查进行中...' : 'Review in Progress...',
+        marqueeTop: lang === 'zh' 
+            ? 'COSTRICT-CODEREVIEW 2025 • AI 代码审查 • COSTRICT-CODEREVIEW 2025 • AI 代码审查 • 视觉盛宴 • 快速发布 •'
+            : 'Costrict-CodeReview 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER • Costrict-CodeReview 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER •',
+        marqueeBottom: lang === 'zh'
+            ? '专为速度优化 • 为工程师打造 • COSTRICT-CODEREVIEW 2025 • 为工程师打造 • COSTRICT-CODEREVIEW 2025 •'
+            : 'OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • Costrict-CodeReview 2025 • OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • Costrict-CodeReview 2025 •'
+    }
+
     return (
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             {/* Background Elements */}
@@ -22,13 +33,13 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
                 <>
                     <div className="marquee-container marquee-top">
                         <div className="marquee-content">
-                            SHIPPIE 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER • SHIPPIE 2025 • AI CODE REVIEW • VISUAL EUPHORIA • SHIP FASTER •
+                            {t.marqueeTop}
                         </div>
                     </div>
 
                     <div className="marquee-container marquee-bottom">
                         <div className="marquee-content" style={{ animationDirection: 'reverse' }}>
-                            OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • SHIPPIE 2025 • OPTIMIZED FOR SPEED • BUILT FOR ENGINEERS • SHIPPIE 2025 •
+                            {t.marqueeBottom}
                         </div>
                     </div>
                 </>
@@ -37,7 +48,7 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
             {/* Header */}
             <header className="fixed top-12 left-0 right-0 p-6 flex justify-between items-center z-40 pointer-events-none">
                 <div className="text-[var(--text-primary)] font-bold text-xl tracking-widest uppercase pointer-events-auto">
-                    Shippie
+                    Costrict-CodeReview
                 </div>
 
                 {/* Active Task Widget */}
@@ -50,7 +61,7 @@ export function Layout({ children, view, setView, activeSession }: LayoutProps) 
                         className="pointer-events-auto bg-[var(--card-bg)] backdrop-blur-md border border-[var(--accent)] rounded-full px-4 py-2 flex items-center gap-2 text-sm text-[var(--accent)] hover:bg-[var(--accent)] hover:text-black transition-colors"
                     >
                         <Activity className="w-4 h-4 animate-pulse" />
-                        Review in Progress...
+                        {t.reviewing}
                     </motion.button>
                 )}
             </header>

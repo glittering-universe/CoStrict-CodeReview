@@ -10,6 +10,7 @@ interface HomeProps {
     setActiveSession: (session: ReviewSession | null) => void
     history: ReviewSession[]
     onOpenHistorySession: (session: ReviewSession) => void
+    lang: 'zh' | 'en' 
 }
 
 export function Home({
@@ -19,11 +20,24 @@ export function Home({
     setShowConfig,
     setActiveSession,
     history,
-    onOpenHistorySession
+    onOpenHistorySession,
+    lang
 }: HomeProps) {
     const formatDate = (timestamp?: number) => {
         if (!timestamp) return 'Unknown time'
-        return new Date(timestamp).toLocaleString()
+        return new Date(timestamp).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US')
+    }
+
+    // 翻译配置
+    const t = {
+        subtitle: lang === 'zh' ? '今天想审查什么代码？' : 'What can I review for you today?',
+        placeholder: lang === 'zh' ? '输入模型名称 (如 glm-4.5-flash)...' : 'Enter model (e.g. glm-4.5-flash)...',
+        recent: lang === 'zh' ? '最近的审查' : 'Recent Reviews',
+        noHistory: lang === 'zh' ? '暂无历史记录。开始您的第一次审查吧。' : 'No saved history yet. Run your first review to see it here.',
+        session: lang === 'zh' ? '会话 #' : 'Session #',
+        view: lang === 'zh' ? '查看' : 'View',
+        noSummary: lang === 'zh' ? '暂无摘要。' : 'No summary available.',
+        clear: lang === 'zh' ? '清除 / 新会话' : 'Clear / New Session'
     }
 
     return (
@@ -36,8 +50,8 @@ export function Home({
             className="flex flex-col items-center justify-center gap-8 w-full max-w-3xl min-h-[60vh] mx-auto"
         >
             <div className="text-center space-y-4">
-                <h1 className="hero-title text-6xl md:text-8xl">SHIPPIE</h1>
-                <p className="subtitle">What can I review for you today?</p>
+                <h1 className="hero-title text-6xl md:text-8xl">Costrict-CodeReview</h1>
+                <p className="subtitle">{t.subtitle}</p>
             </div>
 
             <div className="w-full relative">
@@ -56,7 +70,7 @@ export function Home({
                         onChange={(e) => setModelString(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && startReview()}
                         className="chat-input"
-                        placeholder="Enter model (e.g. openai:glm-4-flash)..."
+                        placeholder={t.placeholder}
                     />
 
                     <button
@@ -65,7 +79,7 @@ export function Home({
                             setActiveSession(null)
                         }}
                         className="action-btn"
-                        title="Clear / New Session"
+                        title={t.clear}
                     >
                         <Plus className="w-5 h-5" />
                     </button>
@@ -83,12 +97,12 @@ export function Home({
             <div className="history-section w-full">
                 <div className="history-header">
                     <div className="session-chip">
-                        <BookOpen className="w-4 h-4" /> Recent Reviews
+                        <BookOpen className="w-4 h-4" /> {t.recent}
                     </div>
                 </div>
                 {history.length === 0 ? (
                     <div className="empty-state">
-                        <p>No saved history yet. Run your first review to see it here.</p>
+                        <p>{t.noHistory}</p>
                     </div>
                 ) : (
                     <div className="history-grid">
@@ -97,7 +111,7 @@ export function Home({
                                 <div className="history-card-header">
                                     <div>
                                         <p className="history-model">{session.modelString}</p>
-                                        <p className="history-id">Session #{session.id}</p>
+                                        <p className="history-id">{t.session}{session.id}</p>
                                     </div>
                                     <div className="history-meta">
                                         <Clock3 className="w-4 h-4" />
@@ -107,11 +121,11 @@ export function Home({
                                 <div className="history-body">
                                     {session.finalResult
                                         ? session.finalResult.slice(0, 200).concat(session.finalResult.length > 200 ? '…' : '')
-                                        : 'No summary available.'}
+                                        : t.noSummary}
                                 </div>
                                 <div className="history-footer">
                                     <button className="ghost-btn" onClick={() => onOpenHistorySession(session)}>
-                                        View
+                                        {t.view}
                                     </button>
                                 </div>
                             </div>

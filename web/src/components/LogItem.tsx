@@ -41,7 +41,6 @@ const extractJsonBlocks = (text?: string) => {
                     i = j
                     continue
                 } catch {
-                    // fall through to treat as text
                 }
             }
         }
@@ -59,11 +58,36 @@ interface LogItemProps {
     displayableIndex: number
     isExpanded: boolean
     toggleStep: (index: number) => void
+    lang: 'zh' | 'en' 
 }
 
-export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }: LogItemProps) {
+export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep, lang }: LogItemProps) {
+    
+    const t = (key: string, ...args: (string | number)[]) => {
+        const isZh = lang === 'zh'
+        switch (key) {
+            case 'no_args': 
+                return isZh ? '未提供参数。' : 'No arguments provided.'
+            case 'files_found':
+                return isZh ? `发现 ${args[0]} 个文件待审查` : `Found ${args[0]} files to review`
+            case 'processing_step':
+                return isZh 
+                    ? `正在执行步骤 (含 ${args[0]} 个工具调用)` 
+                    : `Processing step with ${args[0]} tool${args[0] !== 1 ? 's' : ''}`
+            case 'tools_count':
+                return isZh 
+                    ? `${args[0]} 个工具` 
+                    : `${args[0]} tool${args[0] !== 1 ? 's' : ''}`
+            case 'tool_default':
+                return isZh ? `工具 ${args[0]}` : `Tool ${args[0]}`
+            case 'call_num':
+                return isZh ? `调用 #${args[0]}` : `Call #${args[0]}`
+            default: return key
+        }
+    }
+
     const formatToolArgs = (args: unknown) => {
-        if (args === undefined || args === null) return 'No arguments provided.'
+        if (args === undefined || args === null) return t('no_args')
         if (typeof args === 'string') return args
         try {
             return JSON.stringify(args, null, 2)
@@ -109,7 +133,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
             >
                 <div className="progress-step-number">{displayableIndex}</div>
                 <div className="progress-step-content">
-                    Found {log.files?.length} files to review
+                    {t('files_found', log.files?.length || 0)}
                 </div>
             </motion.div>
         )
@@ -119,7 +143,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
         const toolCount = log.step.toolCalls?.length || 0
 
         const { cleanText, jsonBlocks } = extractJsonBlocks(log.step.text)
-        const displayText = cleanText || log.step.text || `Processing step with ${toolCount} tool${toolCount !== 1 ? 's' : ''}`
+        const displayText = cleanText || log.step.text || t('processing_step', toolCount)
 
         return (
             <motion.div
@@ -135,7 +159,7 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
                             {displayText}
                             {toolCount > 0 && (
                                 <div className="log-meta">
-                                    <span className="tool-pill">{toolCount} tool{toolCount !== 1 ? 's' : ''}</span>
+                                    <span className="tool-pill">{t('tools_count', toolCount)}</span>
                                 </div>
                             )}
                             {jsonBlocks.length > 0 && (
@@ -174,8 +198,9 @@ export function LogItem({ log, index, displayableIndex, isExpanded, toggleStep }
                                     {log.step.toolCalls.map((tool, j) => (
                                         <div key={`${tool.toolName ?? 'tool'}-${j}`} className="tool-detail-card">
                                             <div className="tool-detail-header">
-                                                <span>{tool.toolName ?? `Tool ${j + 1}`}</span>
-                                                <span className="tool-pill">Call #{j + 1}</span>
+                                                {/* [修改] 使用翻译 */}
+                                                <span>{tool.toolName ?? t('tool_default', j + 1)}</span>
+                                                <span className="tool-pill">{t('call_num', j + 1)}</span>
                                             </div>
                                             <pre className="tool-detail-body">
                                                 {formatToolArgs(tool.args)}

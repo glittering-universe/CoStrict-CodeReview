@@ -90,5 +90,18 @@ export const runAgenticReview = async (
 
   await clients.closeClients()
 
+  const summaryToolCall = latestResult.steps
+    .flatMap(step => step.toolCalls)
+    .find(toolCall => toolCall.toolName === 'submit_summary')
+
+  if (summaryToolCall && summaryToolCall.args) {
+    // 优先返回 submit_summary 的参数 (summary 或 content)
+    // biome-ignore lint/suspicious/noExplicitAny: fine
+    const args = summaryToolCall.args as any
+    const summaryText = args.summary || args.content || JSON.stringify(args)
+    return summaryText
+  }
+
+  // 如果没找到工具调用，才返回 Agent 的最后一句废话
   return latestResult.text
 }
