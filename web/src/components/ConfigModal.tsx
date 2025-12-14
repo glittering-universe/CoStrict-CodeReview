@@ -58,8 +58,15 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   };
 
   const navItems = [
+<<<<<<< HEAD
     { id: 'general', label: t('General'), icon: Settings },
     { id: 'api', label: t('API Configuration'), icon: Key },
+=======
+    { id: 'general', label: '常规设置', icon: Settings },
+    { id: 'api', label: 'API 配置', icon: Key },
+    { id: 'environment', label: '环境', icon: Globe },
+    { id: 'advanced', label: '高级设置', icon: Terminal },
+>>>>>>> main
   ];
 
   return (
@@ -102,6 +109,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
+<<<<<<< HEAD
                       <label className="settings-label">{t('Language')}</label>
                       <p className="settings-description">
                         {t('Select the language...')}
@@ -115,6 +123,18 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       >
                         <option value="en">English</option>
                         <option value="zh">中文</option>
+=======
+                      <label className="settings-label">语言</label>
+                      <p className="settings-description">
+                        选择界面和审查的语言。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <select className="settings-select">
+                        <option>中文</option>
+                        <option>English</option>
+                        <option>Japanese</option>
+>>>>>>> main
                       </select>
                     </div>
                   </div>
@@ -122,6 +142,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   {/* Theme Selector */}
                   <div className="settings-row">
                     <div className="settings-info">
+<<<<<<< HEAD
                       <label className="settings-label">{t('Theme')}</label>
                       <p className="settings-description">
                         {t('Choose your preferred...')}
@@ -135,6 +156,18 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       >
                         <option value="dark">{t('Dark (Deep)')}</option>
                         <option value="light">{t('Light (White)')}</option>
+=======
+                      <label className="settings-label">主题</label>
+                      <p className="settings-description">
+                        选择您喜欢的视觉主题。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <select className="settings-select">
+                        <option>深色</option>
+                        <option>浅色</option>
+                        <option>系统</option>
+>>>>>>> main
                       </select>
                     </div>
                   </div>
@@ -145,9 +178,15 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
+<<<<<<< HEAD
                       <label className="settings-label">{t('API Key')}</label>
                       <p className="settings-description">
                         {t('Your OpenAI...')}
+=======
+                      <label className="settings-label">API 密钥</label>
+                      <p className="settings-description">
+                        您的 OpenAI 或兼容的 API 密钥。
+>>>>>>> main
                       </p>
                     </div>
                     <div className="settings-control">
@@ -162,9 +201,15 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   </div>
                   <div className="settings-row">
                     <div className="settings-info">
+<<<<<<< HEAD
                       <label className="settings-label">{t('Base URL')}</label>
                       <p className="settings-description">
                         {t('Override the default...')}
+=======
+                      <label className="settings-label">基础 URL</label>
+                      <p className="settings-description">
+                        覆盖默认的 API 端点。
+>>>>>>> main
                       </p>
                     </div>
                     <div className="settings-control">
@@ -180,9 +225,55 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 </>
               )}
 
+<<<<<<< HEAD
               <div className="settings-footer">
                 <button className="settings-primary-btn" onClick={onClose}>
                   {t('Save & Close')}
+=======
+              {activeTab === 'environment' && (
+                <div className="settings-row">
+                  <div className="settings-info">
+                    <label className="settings-label">环境</label>
+                    <p className="settings-description">
+                      选择执行环境。
+                    </p>
+                  </div>
+                  <div className="settings-control">
+                    <select
+                      value={localConfig.environment}
+                      onChange={(e) => handleChange('environment', e.target.value)}
+                      className="settings-select"
+                    >
+                      <option value="local">本地</option>
+                      <option value="production">生产</option>
+                      <option value="staging">预发布</option>
+                      <option value="development">开发</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'advanced' && (
+                <div className="settings-row">
+                  <div className="settings-info">
+                    <label className="settings-label">调试模式</label>
+                    <p className="settings-description">
+                      启用详细日志记录以进行故障排除。
+                    </p>
+                  </div>
+                  <div className="settings-control">
+                    <select className="settings-select">
+                      <option>关闭</option>
+                      <option>开启</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="settings-footer">
+                <button className="settings-primary-btn" onClick={onClose}>
+                  保存并关闭
+>>>>>>> main
                 </button>
               </div>
             </div>

@@ -1,3 +1,4 @@
+/* CoStrict-Code Review 应用样式 */
 #root {
   max-width: 1280px;
   margin: 0 auto;
@@ -12,11 +13,9 @@
   transition: filter 300ms;
 }
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+  filter: drop-shadow(0 0 2em #aaffd0aa);
 }
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+
 
 @keyframes logo-spin {
   from {
@@ -38,5 +37,5 @@
 }
 
 .read-the-docs {
-  color: #888;
+  color: var(--text-muted);
 }

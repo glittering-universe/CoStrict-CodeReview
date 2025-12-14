@@ -6,12 +6,22 @@ import { Home } from './components/Home'
 import { ReviewSession as ReviewSessionComponent } from './components/ReviewSession'
 import { ConfigModal, type ConfigSettings } from './components/ConfigModal'
 
+<<<<<<< HEAD
 // 修改：设置默认模型
 const DEFAULT_MODEL = 'openai:glm-4.5-flash'
 const HISTORY_STORAGE_KEY = 'costrict-code-review.review-history'
+=======
+const DEFAULT_MODEL = 'openai:glm-4.5-flash'
+const HISTORY_STORAGE_KEY = 'costrict.review-history'
+>>>>>>> main
 
 const cloneSession = (session: ReviewSession): ReviewSession =>
     JSON.parse(JSON.stringify(session)) as ReviewSession
+
+const API_CONFIG = {
+  apiKey: import.meta.env.OPENAI_API_KEY,
+  apiBase: import.meta.env.OPENAI_API_BASE,
+};
 
 const resolveApiBaseUrl = () => {
     const env = (import.meta.env as Record<string, string | undefined>).VITE_API_BASE_URL

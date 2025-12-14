@@ -50,8 +50,13 @@ export function Home({
             className="flex flex-col items-center justify-center gap-8 w-full max-w-3xl min-h-[60vh] mx-auto"
         >
             <div className="text-center space-y-4">
+<<<<<<< HEAD
                 <h1 className="hero-title text-6xl md:text-8xl">Costrict-CodeReview</h1>
                 <p className="subtitle">{t.subtitle}</p>
+=======
+                <h1 className="hero-title text-6xl md:text-8xl">CoStrict-Code Review</h1>
+                <p className="subtitle">今天我可以为您审查什么代码？</p>
+>>>>>>> main
             </div>
 
             <div className="w-full relative">
@@ -70,7 +75,11 @@ export function Home({
                         onChange={(e) => setModelString(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && startReview()}
                         className="chat-input"
+<<<<<<< HEAD
                         placeholder={t.placeholder}
+=======
+                        placeholder="输入模型名称 (例如: openai:glm-4-flash)..."
+>>>>>>> main
                     />
 
                     <button
@@ -79,7 +88,11 @@ export function Home({
                             setActiveSession(null)
                         }}
                         className="action-btn"
+<<<<<<< HEAD
                         title={t.clear}
+=======
+                        title="清除 / 新建会话"
+>>>>>>> main
                     >
                         <Plus className="w-5 h-5" />
                     </button>
@@ -97,12 +110,20 @@ export function Home({
             <div className="history-section w-full">
                 <div className="history-header">
                     <div className="session-chip">
+<<<<<<< HEAD
                         <BookOpen className="w-4 h-4" /> {t.recent}
+=======
+                        <BookOpen className="w-4 h-4" /> 最近审查
+>>>>>>> main
                     </div>
                 </div>
                 {history.length === 0 ? (
                     <div className="empty-state">
+<<<<<<< HEAD
                         <p>{t.noHistory}</p>
+=======
+                        <p>暂无保存的历史记录。运行您的第一次审查后，结果将显示在这里。</p>
+>>>>>>> main
                     </div>
                 ) : (
                     <div className="history-grid">
@@ -125,7 +146,11 @@ export function Home({
                                 </div>
                                 <div className="history-footer">
                                     <button className="ghost-btn" onClick={() => onOpenHistorySession(session)}>
+<<<<<<< HEAD
                                         {t.view}
+=======
+                                        查看
+>>>>>>> main
                                     </button>
                                 </div>
                             </div>

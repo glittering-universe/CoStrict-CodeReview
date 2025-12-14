@@ -9,7 +9,7 @@ interface HistoryProps {
 }
 
 const formatDate = (timestamp?: number) => {
-    if (!timestamp) return 'Unknown time'
+    if (!timestamp) return '未知时间'
     return new Date(timestamp).toLocaleString()
 }
 
@@ -26,18 +26,18 @@ export function History({ sessions, onBack, onOpenSession }: HistoryProps) {
             <div className="review-header">
                 <button onClick={onBack} className="ghost-btn">
                     <ArrowLeft className="w-4 h-4" />
-                    Back
+                    返回
                 </button>
                 <div className="session-chip">
                     <BookOpen className="w-4 h-4" />
-                    Review History
+                    审查历史
                 </div>
             </div>
 
             {sessions.length === 0 ? (
                 <div className="empty-state">
                     <Sparkles className="w-6 h-6" />
-                    <p>No reviews yet. Start one to build your history.</p>
+                    <p>暂无审查记录。开始第一次审查以构建历史记录。</p>
                 </div>
             ) : (
                 <div className="history-grid">
@@ -54,11 +54,11 @@ export function History({ sessions, onBack, onOpenSession }: HistoryProps) {
                                 </div>
                             </div>
                             <div className="history-body">
-                                {session.finalResult ? session.finalResult.slice(0, 220).concat(session.finalResult.length > 220 ? '…' : '') : 'No summary available.'}
+                                {session.finalResult ? session.finalResult.slice(0, 220).concat(session.finalResult.length > 220 ? '…' : '') : '无可用摘要。'}
                             </div>
                             <div className="history-footer">
                                 <button className="ghost-btn" onClick={() => onOpenSession(session)}>
-                                    View Details
+                                    查看详情
                                 </button>
                             </div>
                         </div>
