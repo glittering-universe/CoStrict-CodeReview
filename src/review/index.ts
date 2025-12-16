@@ -68,7 +68,11 @@ export const review = async (yargs: ReviewArgs): Promise<void> => {
     logger.debug('Review response:', message)
     logger.info('Review completed successfully.')
   } catch (error: unknown) {
-    logger.error('Review failed with error:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error(`Review failed: ${message}`)
+    if (error instanceof Error && error.stack) {
+      logger.debug(error.stack)
+    }
     process.exit(1)
   }
 }

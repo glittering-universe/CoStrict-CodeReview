@@ -6,13 +6,19 @@ import {
 } from 'ai'
 import { logger } from '../../common/utils/logger'
 
+type ReviewStepEvent = {
+  toolCalls: unknown
+  text: string
+  usage: unknown
+}
+
 export const reviewAgent = async (
   prompt: string,
   model: LanguageModelV1,
   maxSteps: number,
   tools: Record<string, Tool>,
   onSummarySubmit?: () => void,
-  onStep?: (step: any) => void
+  onStep?: (step: ReviewStepEvent) => void
   // biome-ignore lint/suspicious/noExplicitAny: fine
 ): Promise<GenerateTextResult<Record<string, any>, string>> => {
   return generateText({

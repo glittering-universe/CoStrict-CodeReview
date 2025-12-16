@@ -22,6 +22,92 @@ interface MCPConfig {
   mcpServers: Record<string, MCPServerConfig>
 }
 
+const stripJsonComments = (input: string): string => {
+  let output = ''
+  let inString = false
+  let stringQuote: '"' | "'" | null = null
+  let escaped = false
+
+  for (let index = 0; index < input.length; index++) {
+    const char = input[index]
+    const next = input[index + 1]
+
+    if (inString) {
+      output += char
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (stringQuote && char === stringQuote) {
+        inString = false
+        stringQuote = null
+      }
+      continue
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true
+      stringQuote = char
+      output += char
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      while (index < input.length && input[index] !== '\n') index++
+      output += '\n'
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      index += 2
+      while (index < input.length) {
+        if (input[index] === '*' && input[index + 1] === '/') {
+          index++
+          break
+        }
+        index++
+      }
+      continue
+    }
+
+    output += char
+  }
+
+  return output
+}
+
+const commandExistsInPath = (command: string): boolean => {
+  if (!command) return false
+  if (command.includes('/') || command.includes('\\')) return existsSync(command)
+
+  const pathVar = process.env.PATH ?? ''
+  const delimiter = process.platform === 'win32' ? ';' : ':'
+  const dirs = pathVar.split(delimiter).filter(Boolean)
+
+  if (process.platform === 'win32') {
+    const extensions = (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM')
+      .split(';')
+      .filter(Boolean)
+    for (const dir of dirs) {
+      for (const ext of extensions) {
+        if (existsSync(join(dir, `${command}${ext}`))) return true
+      }
+    }
+    return false
+  }
+
+  for (const dir of dirs) {
+    if (existsSync(join(dir, command))) return true
+  }
+
+  return false
+}
+
+const normalizeNpxArgsForBunx = (args: string[] | undefined): string[] | undefined => {
+  if (!args?.length) return args
+  return args.filter((arg) => arg !== '-y' && arg !== '--yes')
+}
+
 export class MCPClientManager {
   private clients: Record<string, MCPClient | null> = {}
   private config: MCPConfig | null = null
@@ -37,10 +123,16 @@ export class MCPClientManager {
       if (existsSync(shippieConfigPath)) {
         try {
           const shippieConfigContent = await readFile(shippieConfigPath, 'utf-8')
-          const shippieConfig = JSON.parse(shippieConfigContent) as MCPConfig
-          config.mcpServers = { ...config.mcpServers, ...shippieConfig.mcpServers }
-          loadedAnyConfig = true
-          logger.info(`Loaded MCP config from ${shippieConfigPath}`)
+          const normalized = stripJsonComments(shippieConfigContent).trim()
+          if (!normalized) {
+            logger.info(`Loaded empty MCP config from ${shippieConfigPath}`)
+            loadedAnyConfig = true
+          } else {
+            const shippieConfig = JSON.parse(normalized) as MCPConfig
+            config.mcpServers = { ...config.mcpServers, ...shippieConfig.mcpServers }
+            loadedAnyConfig = true
+            logger.info(`Loaded MCP config from ${shippieConfigPath}`)
+          }
         } catch (error) {
           logger.warn(`Found .shippie/mcp.json but failed to read it: ${error}`)
         }
@@ -53,10 +145,16 @@ export class MCPClientManager {
       if (existsSync(cursorConfigPath)) {
         try {
           const cursorConfigContent = await readFile(cursorConfigPath, 'utf-8')
-          const cursorConfig = JSON.parse(cursorConfigContent) as MCPConfig
-          config.mcpServers = { ...config.mcpServers, ...cursorConfig.mcpServers }
-          loadedAnyConfig = true
-          logger.info(`Loaded MCP config from ${cursorConfigPath}`)
+          const normalized = stripJsonComments(cursorConfigContent).trim()
+          if (!normalized) {
+            logger.info(`Loaded empty MCP config from ${cursorConfigPath}`)
+            loadedAnyConfig = true
+          } else {
+            const cursorConfig = JSON.parse(normalized) as MCPConfig
+            config.mcpServers = { ...config.mcpServers, ...cursorConfig.mcpServers }
+            loadedAnyConfig = true
+            logger.info(`Loaded MCP config from ${cursorConfigPath}`)
+          }
         } catch (error) {
           logger.warn(`Found .cursor/mcp.json but failed to read it: ${error}`)
         }
@@ -87,10 +185,25 @@ export class MCPClientManager {
     for (const [serverName, serverConfig] of Object.entries(this.config.mcpServers)) {
       try {
         if (serverConfig.command) {
+          let command = serverConfig.command
+          let args = serverConfig.args
+
+          if (
+            command === 'npx' &&
+            !commandExistsInPath(command) &&
+            commandExistsInPath('bunx')
+          ) {
+            logger.warn(
+              `MCP server "${serverName}" is configured to use "npx" but it is not available; falling back to "bunx".`
+            )
+            command = 'bunx'
+            args = normalizeNpxArgsForBunx(args)
+          }
+
           // Use StdioMCPTransport for command-based configuration
           const transport = new StdioMCPTransport({
-            command: serverConfig.command,
-            args: serverConfig.args,
+            command,
+            args,
           })
 
           this.clients[serverName] = await experimental_createMCPClient({

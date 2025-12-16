@@ -1,18 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Settings, Globe, Key, Terminal } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion'
+import { Globe, Key, Settings, Terminal, X } from 'lucide-react'
+import type React from 'react'
+import { useEffect, useState } from 'react'
 
 export interface ConfigSettings {
-  apiKey: string;
-  environment: string;
-  baseUrl: string;
+  apiKey: string
+  environment: string
+  baseUrl: string
 }
 
 interface ConfigModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  config: ConfigSettings;
-  onSave: (newConfig: ConfigSettings) => void;
+  isOpen: boolean
+  onClose: () => void
+  config: ConfigSettings
+  onSave: (newConfig: ConfigSettings) => void
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
@@ -21,34 +22,55 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   config,
   onSave,
 }) => {
-  const [activeTab, setActiveTab] = useState('general');
-  const [localConfig, setLocalConfig] = useState(config);
+  const [activeTab, setActiveTab] = useState('general')
+  const [localConfig, setLocalConfig] = useState(config)
 
   useEffect(() => {
-    setLocalConfig(config);
-  }, [config]);
+    setLocalConfig(config)
+  }, [config])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
 
   const handleChange = (key: string, value: string) => {
-    const newConfig = { ...localConfig, [key]: value };
-    setLocalConfig(newConfig);
-    onSave(newConfig);
-  };
+    const newConfig = { ...localConfig, [key]: value }
+    setLocalConfig(newConfig)
+    onSave(newConfig)
+  }
 
   const navItems = [
     { id: 'general', label: '常规设置', icon: Settings },
     { id: 'api', label: 'API 配置', icon: Key },
     { id: 'environment', label: '环境', icon: Globe },
     { id: 'advanced', label: '高级设置', icon: Terminal },
-  ];
+  ]
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="modal-overlay" onClick={onClose}>
+        <div
+          className="modal-overlay"
+          onClick={onClose}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              onClose()
+            }
+          }}
+        >
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0.14, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            exit={{ opacity: 0.14, scale: 0.95 }}
             className="settings-modal"
             onClick={(e) => e.stopPropagation()}
           >
@@ -56,6 +78,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
             <div className="settings-sidebar">
               {navItems.map((item) => (
                 <button
+                  type="button"
                   key={item.id}
                   className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
                   onClick={() => setActiveTab(item.id)}
@@ -72,7 +95,12 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <h2 className="settings-title">
                   {navItems.find((i) => i.id === activeTab)?.label}
                 </h2>
-                <button className="close-btn" aria-label="Close settings" onClick={onClose}>
+                <button
+                  type="button"
+                  className="close-btn"
+                  aria-label="Close settings"
+                  onClick={onClose}
+                >
                   <X size={20} />
                 </button>
               </div>
@@ -81,13 +109,13 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">语言</label>
-                      <p className="settings-description">
-                        选择界面和审查的语言。
-                      </p>
+                      <label className="settings-label" htmlFor="settings-language">
+                        语言
+                      </label>
+                      <p className="settings-description">选择界面和审查的语言。</p>
                     </div>
                     <div className="settings-control">
-                      <select className="settings-select">
+                      <select id="settings-language" className="settings-select">
                         <option>中文</option>
                         <option>English</option>
                         <option>Japanese</option>
@@ -96,13 +124,13 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   </div>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">主题</label>
-                      <p className="settings-description">
-                        选择您喜欢的视觉主题。
-                      </p>
+                      <label className="settings-label" htmlFor="settings-theme">
+                        主题
+                      </label>
+                      <p className="settings-description">选择您喜欢的视觉主题。</p>
                     </div>
                     <div className="settings-control">
-                      <select className="settings-select">
+                      <select id="settings-theme" className="settings-select">
                         <option>深色</option>
                         <option>浅色</option>
                         <option>系统</option>
@@ -116,13 +144,16 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">API 密钥</label>
+                      <label className="settings-label" htmlFor="settings-apiKey">
+                        API 密钥
+                      </label>
                       <p className="settings-description">
                         您的 OpenAI 或兼容的 API 密钥。
                       </p>
                     </div>
                     <div className="settings-control">
                       <input
+                        id="settings-apiKey"
                         type="password"
                         value={localConfig.apiKey}
                         onChange={(e) => handleChange('apiKey', e.target.value)}
@@ -133,13 +164,14 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   </div>
                   <div className="settings-row">
                     <div className="settings-info">
-                      <label className="settings-label">基础 URL</label>
-                      <p className="settings-description">
-                        覆盖默认的 API 端点。
-                      </p>
+                      <label className="settings-label" htmlFor="settings-baseUrl">
+                        基础 URL
+                      </label>
+                      <p className="settings-description">覆盖默认的 API 端点。</p>
                     </div>
                     <div className="settings-control">
                       <input
+                        id="settings-baseUrl"
                         type="text"
                         value={localConfig.baseUrl}
                         onChange={(e) => handleChange('baseUrl', e.target.value)}
@@ -154,13 +186,14 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
               {activeTab === 'environment' && (
                 <div className="settings-row">
                   <div className="settings-info">
-                    <label className="settings-label">环境</label>
-                    <p className="settings-description">
-                      选择执行环境。
-                    </p>
+                    <label className="settings-label" htmlFor="settings-environment">
+                      环境
+                    </label>
+                    <p className="settings-description">选择执行环境。</p>
                   </div>
                   <div className="settings-control">
                     <select
+                      id="settings-environment"
                       value={localConfig.environment}
                       onChange={(e) => handleChange('environment', e.target.value)}
                       className="settings-select"
@@ -177,13 +210,15 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
               {activeTab === 'advanced' && (
                 <div className="settings-row">
                   <div className="settings-info">
-                    <label className="settings-label">调试模式</label>
+                    <label className="settings-label" htmlFor="settings-debug">
+                      调试模式
+                    </label>
                     <p className="settings-description">
                       启用详细日志记录以进行故障排除。
                     </p>
                   </div>
                   <div className="settings-control">
-                    <select className="settings-select">
+                    <select id="settings-debug" className="settings-select">
                       <option>关闭</option>
                       <option>开启</option>
                     </select>
@@ -192,7 +227,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
               )}
 
               <div className="settings-footer">
-                <button className="settings-primary-btn" onClick={onClose}>
+                <button type="button" className="settings-primary-btn" onClick={onClose}>
                   保存并关闭
                 </button>
               </div>
@@ -201,5 +236,5 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
         </div>
       )}
     </AnimatePresence>
-  );
-};
+  )
+}

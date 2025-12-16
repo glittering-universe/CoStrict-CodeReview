@@ -2,7 +2,6 @@ import { exec } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-
 import type { LineRange, ReviewFile } from '../types'
 import { logger } from '../utils/logger'
 import { getDiffCommand, getGitRoot } from './getChangedFilesNames'

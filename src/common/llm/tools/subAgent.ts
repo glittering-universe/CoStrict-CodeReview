@@ -91,7 +91,11 @@ Submit the report to the main agent using the 'submit_report' tool.`
 
         return 'Sub-agent completed execution but produced no report output'
       } catch (error) {
-        logger.error('Error in sub-agent execution:', error)
+        const message = error instanceof Error ? error.message : String(error)
+        logger.error(`Error in sub-agent execution: ${message}`)
+        if (error instanceof Error && error.stack) {
+          logger.debug(error.stack)
+        }
         if (error instanceof Error) {
           return `Error executing sub-agent: ${error.message}`
         }

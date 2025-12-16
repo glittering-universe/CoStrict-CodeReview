@@ -17,6 +17,7 @@ const providerMap: Record<string, ProviderCreator> = {
 export interface ModelCreationOptions {
   baseURL?: string
   apiVersion?: string
+  apiKey?: string
 }
 
 // Internal helper to create the provider function
