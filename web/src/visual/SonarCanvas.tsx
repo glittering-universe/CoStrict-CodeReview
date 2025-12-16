@@ -20,10 +20,12 @@ interface SonarCanvasProps {
 }
 
 const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value))
+  Number.isNaN(value) ? min : Math.min(max, Math.max(min, value))
 
 const smoothstep = (edge0: number, edge1: number, value: number) => {
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  const denom = edge1 - edge0
+  if (Math.abs(denom) < 1e-6) return value < edge0 ? 0 : 1
+  const t = clamp((value - edge0) / denom, 0, 1)
   return t * t * (3 - 2 * t)
 }
 
@@ -61,20 +63,26 @@ export function SonarCanvas({ className, mouse, renderQuality = 1 }: SonarCanvas
     const target = canvas.parentElement ?? canvas
     const updateSize = () => {
       const rect = target.getBoundingClientRect()
+      const fallbackWidth =
+        typeof window !== 'undefined' ? Math.max(1, window.innerWidth) : 1
+      const fallbackHeight =
+        typeof window !== 'undefined' ? Math.max(1, window.innerHeight) : 1
+      const cssWidth = rect.width || fallbackWidth
+      const cssHeight = rect.height || fallbackHeight
       const dpr =
         typeof window !== 'undefined' && window.devicePixelRatio
           ? window.devicePixelRatio
           : 1
       const scale = clamp(dpr, 1, 2) * renderQuality
 
-      const nextWidth = Math.max(1, Math.floor(rect.width * scale))
-      const nextHeight = Math.max(1, Math.floor(rect.height * scale))
+      const nextWidth = Math.max(1, Math.floor(cssWidth * scale))
+      const nextHeight = Math.max(1, Math.floor(cssHeight * scale))
       if (canvas.width !== nextWidth) canvas.width = nextWidth
       if (canvas.height !== nextHeight) canvas.height = nextHeight
 
       viewportRef.current = {
-        width: rect.width,
-        height: rect.height,
+        width: cssWidth,
+        height: cssHeight,
         scale,
       }
     }

@@ -11,12 +11,14 @@ interface GlyphDitherCanvasProps {
 }
 
 const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value))
+  Number.isNaN(value) ? min : Math.min(max, Math.max(min, value))
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 const smoothstep = (edge0: number, edge1: number, value: number) => {
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  const denom = edge1 - edge0
+  if (Math.abs(denom) < 1e-6) return value < edge0 ? 0 : 1
+  const t = clamp((value - edge0) / denom, 0, 1)
   return t * t * (3 - 2 * t)
 }
 
@@ -95,6 +97,7 @@ const computeEnergy = (
   params: CausticsParams
 ) => {
   const { width, height } = viewport
+  if (!width || !height) return 0
 
   const sx = x / width
   const sy = y / height
@@ -103,12 +106,20 @@ const computeEnergy = (
   const cy = params.circleCenterY
 
   const minDim = Math.min(width, height)
+  if (!minDim) return 0
   const px = (x - cx) / minDim
   const py = (y - cy) / minDim
   const dist = Math.hypot(px, py)
 
   const ringRadius = params.ringRadius / minDim
   const ringThickness = params.ringThickness / minDim
+  if (
+    !Number.isFinite(ringRadius) ||
+    !Number.isFinite(ringThickness) ||
+    ringThickness <= 0
+  ) {
+    return 0
+  }
 
   const ringBand =
     1 - smoothstep(ringThickness, ringThickness * 1.7, Math.abs(dist - ringRadius))
@@ -120,7 +131,7 @@ const computeEnergy = (
   const edgeMask = 1 - smoothstep(0.01, 0.045, edgeDist)
 
   const baseMask = clamp(Math.max(ringMask * 1.05, edgeMask * 0.75), 0, 1)
-  if (baseMask < 0.01) {
+  if (!Number.isFinite(baseMask) || baseMask < 0.01) {
     return 0
   }
 
@@ -151,7 +162,7 @@ const computeEnergy = (
   const mouseGlow = Math.exp(-(md ** 2) / (2 * 0.16 ** 2)) * 0.25
 
   const energy = clamp(baseMask * caustics + mouseGlow * baseMask, 0, 1)
-  return energy
+  return Number.isFinite(energy) ? energy : 0
 }
 
 export function GlyphDitherCanvas({
@@ -208,14 +219,20 @@ export function GlyphDitherCanvas({
     const target = canvas.parentElement ?? canvas
     const updateSize = () => {
       const rect = target.getBoundingClientRect()
+      const fallbackWidth =
+        typeof window !== 'undefined' ? Math.max(1, window.innerWidth) : 1
+      const fallbackHeight =
+        typeof window !== 'undefined' ? Math.max(1, window.innerHeight) : 1
+      const cssWidth = rect.width || fallbackWidth
+      const cssHeight = rect.height || fallbackHeight
       const dpr =
         typeof window !== 'undefined' && window.devicePixelRatio
           ? window.devicePixelRatio
           : 1
       const scale = clamp(dpr, 1, 2) * renderQuality
 
-      const nextWidth = Math.max(1, Math.floor(rect.width * scale))
-      const nextHeight = Math.max(1, Math.floor(rect.height * scale))
+      const nextWidth = Math.max(1, Math.floor(cssWidth * scale))
+      const nextHeight = Math.max(1, Math.floor(cssHeight * scale))
 
       canvas.width = nextWidth
       canvas.height = nextHeight
@@ -224,28 +241,28 @@ export function GlyphDitherCanvas({
       glyphCanvas.height = nextHeight
 
       viewportRef.current = {
-        width: rect.width,
-        height: rect.height,
+        width: cssWidth,
+        height: cssHeight,
         scale,
       }
 
       // Circle parameters tuned to match the reference: large circle, slightly lower center.
       const params = paramsRef.current
-      const minDim = Math.min(rect.width, rect.height)
-      params.circleCenterX = rect.width * 0.5
-      params.circleCenterY = rect.height * 0.56
+      const minDim = Math.min(cssWidth, cssHeight)
+      params.circleCenterX = cssWidth * 0.5
+      params.circleCenterY = cssHeight * 0.56
       params.ringRadius = minDim * 0.54
       params.ringThickness = minDim * 0.17
 
       // Field buffer (low-res)
       const targetPixels = 48000
       const fieldScale = clamp(
-        Math.sqrt(targetPixels / Math.max(1, rect.width * rect.height)),
+        Math.sqrt(targetPixels / Math.max(1, cssWidth * cssHeight)),
         0.12,
         0.22
       )
-      const fw = Math.max(2, Math.floor(rect.width * fieldScale))
-      const fh = Math.max(2, Math.floor(rect.height * fieldScale))
+      const fw = Math.max(2, Math.floor(cssWidth * fieldScale))
+      const fh = Math.max(2, Math.floor(cssHeight * fieldScale))
       fieldCanvas.width = fw
       fieldCanvas.height = fh
       if (fieldCtx) {

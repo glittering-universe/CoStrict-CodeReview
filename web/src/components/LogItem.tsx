@@ -1,5 +1,5 @@
+import { Icon } from '@iconify/react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, ChevronUp, XCircle } from 'lucide-react'
 import type { Log } from '../types'
 
 const formatJson = (raw: string) => {
@@ -159,9 +159,9 @@ export function LogItem({
         className="progress-step-row"
       >
         <div className="progress-step-number">{displayableIndex}</div>
-        <div className="progress-step-content flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
+        <div className="progress-step-content">
+          <div className="progress-step-top">
+            <div className="progress-step-body">
               {displayText}
               {toolCount > 0 && (
                 <div className="log-meta">
@@ -184,12 +184,13 @@ export function LogItem({
               <button
                 type="button"
                 onClick={() => toggleStep(index)}
-                className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors flex items-center gap-1"
+                className="progress-step-toggle"
+                aria-label={isExpanded ? 'Collapse tool output' : 'Expand tool output'}
               >
                 {isExpanded ? (
-                  <ChevronUp className="w-4 h-4" />
+                  <Icon icon="lucide:chevron-up" width={16} height={16} />
                 ) : (
-                  <ChevronDown className="w-4 h-4" />
+                  <Icon icon="lucide:chevron-down" width={16} height={16} />
                 )}
               </button>
             )}
@@ -201,9 +202,9 @@ export function LogItem({
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0.14 }}
                 transition={{ duration: 0.2 }}
-                className="overflow-hidden mt-2 pt-2 border-t border-[var(--card-border)]"
+                className="progress-step-tools"
               >
-                <div className="space-y-3">
+                <div className="progress-step-toolsList">
                   {log.step.toolCalls.map((tool) => (
                     <div key={getToolKey(tool)} className="tool-detail-card">
                       <div className="tool-detail-header">
@@ -227,14 +228,19 @@ export function LogItem({
       <motion.div
         initial={{ opacity: 0.14, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="progress-step-row border-[var(--error)]"
+        className="progress-step-row progress-step-row--error"
       >
-        <div className="progress-step-number bg-red-500 bg-opacity-20">
+        <div className="progress-step-number progress-step-number--error">
           {displayableIndex}
         </div>
-        <div className="progress-step-content text-[var(--error)]">
-          <div className="flex items-start gap-2">
-            <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div className="progress-step-content progress-step-content--error">
+          <div className="progress-step-errorRow">
+            <Icon
+              icon="lucide:x-circle"
+              width={16}
+              height={16}
+              className="progress-step-errorIcon"
+            />
             <span>{log.message}</span>
           </div>
         </div>

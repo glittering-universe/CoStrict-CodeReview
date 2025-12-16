@@ -1,4 +1,4 @@
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { ConfigModal, type ConfigSettings } from './components/ConfigModal'
 import { Home } from './components/Home'
@@ -115,37 +115,59 @@ function App() {
       if (!reader) throw new Error('No reader available')
 
       const decoder = new TextDecoder()
+      let buffer = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n\n')
+        buffer += decoder.decode(value, { stream: true })
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-            const log: Log = { ...data, timestamp: Date.now() }
+        const newLogs: Log[] = []
+        while (true) {
+          const boundary = buffer.indexOf('\n\n')
+          if (boundary === -1) break
+          const event = buffer.slice(0, boundary)
+          buffer = buffer.slice(boundary + 2)
 
-            setActiveSession((prev) => {
-              if (!prev) return null
-              const updated = { ...prev, logs: [...prev.logs, log] }
+          if (!event.startsWith('data: ')) continue
 
-              if (data.type === 'files') {
-                updated.files = data.files
-              } else if (data.type === 'complete') {
-                updated.finalResult = data.result
-                updated.isReviewing = false
-                updated.completedAt = Date.now()
-              } else if (data.type === 'error') {
-                updated.isReviewing = false
-                updated.completedAt = Date.now()
-              }
-              return updated
-            })
+          try {
+            const data = JSON.parse(event.slice(6)) as Omit<Log, 'timestamp'>
+            newLogs.push({ ...data, timestamp: Date.now() })
+          } catch (parseError) {
+            console.error('Failed to parse SSE event', parseError)
           }
         }
+
+        if (newLogs.length === 0) continue
+
+        setActiveSession((prev) => {
+          if (!prev) return null
+          const updated: ReviewSession = {
+            ...prev,
+            logs: [...prev.logs, ...newLogs],
+          }
+
+          for (const log of newLogs) {
+            if (log.type === 'files') {
+              updated.files = log.files ?? []
+              continue
+            }
+            if (log.type === 'complete') {
+              updated.finalResult = log.result ?? null
+              updated.isReviewing = false
+              updated.completedAt = log.timestamp
+              continue
+            }
+            if (log.type === 'error') {
+              updated.isReviewing = false
+              updated.completedAt = log.timestamp
+            }
+          }
+
+          return updated
+        })
       }
     } catch (error) {
       console.error(error)
@@ -207,24 +229,42 @@ function App() {
 
   return (
     <Layout view={view} setView={setView} activeSession={activeSession}>
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="sync">
         {view === 'home' ? (
-          <Home
-            modelString={modelString}
-            setModelString={setModelString}
-            startReview={startReview}
-            setShowConfig={setShowConfig}
-          />
+          <motion.div
+            key="home"
+            className="view-layer"
+            initial={{ opacity: 1, filter: 'blur(0px)' }}
+            animate={{ opacity: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0.14, filter: 'blur(28px) brightness(0.18) saturate(0.7)' }}
+            transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <Home
+              modelString={modelString}
+              setModelString={setModelString}
+              startReview={startReview}
+              setShowConfig={setShowConfig}
+            />
+          </motion.div>
         ) : (
-          <ReviewSessionComponent
-            activeSession={activeSession}
-            setView={setView}
-            expandedSteps={expandedSteps}
-            toggleStep={toggleStep}
-            expandAll={expandAll}
-            toggleExpandAll={toggleExpandAll}
-            logsEndRef={logsEndRef}
-          />
+          <motion.div
+            key="review"
+            className="view-layer"
+            initial={{ opacity: 1, filter: 'blur(0px)' }}
+            animate={{ opacity: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0.14, filter: 'blur(18px) brightness(0.22)' }}
+            transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <ReviewSessionComponent
+              activeSession={activeSession}
+              setView={setView}
+              expandedSteps={expandedSteps}
+              toggleStep={toggleStep}
+              expandAll={expandAll}
+              toggleExpandAll={toggleExpandAll}
+              logsEndRef={logsEndRef}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 

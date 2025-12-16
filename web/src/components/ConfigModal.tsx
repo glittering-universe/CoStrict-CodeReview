@@ -1,5 +1,5 @@
+import { Icon } from '@iconify/react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Globe, Key, Settings, Terminal, X } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
 
@@ -47,10 +47,10 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   }
 
   const navItems = [
-    { id: 'general', label: '常规设置', icon: Settings },
-    { id: 'api', label: 'API 配置', icon: Key },
-    { id: 'environment', label: '环境', icon: Globe },
-    { id: 'advanced', label: '高级设置', icon: Terminal },
+    { id: 'general', label: '常规设置', icon: 'lucide:settings' },
+    { id: 'api', label: 'API 配置', icon: 'lucide:key' },
+    { id: 'environment', label: '环境', icon: 'lucide:globe' },
+    { id: 'advanced', label: '高级设置', icon: 'lucide:terminal' },
   ]
 
   return (
@@ -83,7 +83,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
                   onClick={() => setActiveTab(item.id)}
                 >
-                  <item.icon size={18} />
+                  <Icon icon={item.icon} width={18} height={18} />
                   {item.label}
                 </button>
               ))}
@@ -101,7 +101,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   aria-label="Close settings"
                   onClick={onClose}
                 >
-                  <X size={20} />
+                  <Icon icon="lucide:x" width={20} height={20} />
                 </button>
               </div>
 
