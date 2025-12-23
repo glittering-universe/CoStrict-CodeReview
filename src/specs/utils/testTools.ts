@@ -175,7 +175,11 @@ export const createTestTools = (
   includeSubAgent = true,
   maxSteps = 25
 ): Record<string, Tool> => {
-  const tools = { ...getBaseTools() }
+  const tools = {
+    ...getBaseTools({
+      sandboxConfirm: async () => ({ approved: true }),
+    }),
+  }
 
   // Replace system-dependent tools with test versions
   tools.read_diff = createTestReadDiffTool(config)

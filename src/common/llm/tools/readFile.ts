@@ -3,6 +3,22 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { getLanguageName } from '../../../review/prompt/utils/fileLanguage'
 
+const resolveMaxFileExcerptChars = (): number => {
+  const raw = process.env.SHIPPIE_MAX_FILE_EXCERPT_CHARS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  return 40_000
+}
+
+const truncateWithMessage = (input: string, maxChars: number): string => {
+  if (input.length <= maxChars) return input
+  const headChars = Math.max(0, Math.floor(maxChars * 0.85))
+  const tailChars = Math.max(0, maxChars - headChars)
+  const head = input.slice(0, headChars)
+  const tail = input.slice(-tailChars)
+  return `${head}\n\n... [excerpt truncated: ${input.length} chars total, showing ${headChars}+${tailChars}] ...\n\n${tail}`
+}
+
 export const readFileTool = tool({
   description:
     'Read the current state of a file or part of a file. You should use this tool to gather specific context. You should use this in conjunction with the read_diff tool to get the full picture of the changes. You should read several lines before and after the changes. You may need to go back and read more lines.',
@@ -27,7 +43,8 @@ export const readFileTool = tool({
       const prefix = `Here is the file excerpt you requested. NOTE that unless an EOF is shown, the file is not complete. File path: ${path}\nLines Selected: ${startIndex + 1} to ${endIndex + 1}:\n\n`
       const language = getLanguageName(path, '')
 
-      return `${prefix}\`\`\`${language.toLowerCase()}\n${content}\`\`\``
+      const formatted = `${prefix}\`\`\`${language.toLowerCase()}\n${content}\`\`\``
+      return truncateWithMessage(formatted, resolveMaxFileExcerptChars())
     } catch (error) {
       if (error instanceof Error) {
         if (error.message.includes('ENOENT') || error.message.includes('no such file')) {

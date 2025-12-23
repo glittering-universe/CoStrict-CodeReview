@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import dotenv from 'dotenv'
-
 import { getYargs } from './args'
+import { loadDotenv } from './common/config/dotenv'
 import type { ConfigureArgs, ParsedArgs, ReviewArgs } from './common/types'
 import { logger } from './common/utils/logger'
 
-dotenv.config()
+loadDotenv()
 
 const main = async () => {
   const argv = (await getYargs()) as ParsedArgs

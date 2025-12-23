@@ -42,6 +42,7 @@ Shippie supports a bunch of setup options. This is a work in progress so check o
 - Model String - The model you want to use eg. openai:gpt-4o, azure:gpt-4o, anthropic:claude-3-5-sonnet-20240620. When using GitHub platform with GitHub Models, use openai:gpt-4o-mini with baseUrl=https://models.github.ai/inference.
 - (optional) Max Steps - The maximum number of steps the bot will take. defaults to 25.
 - (optional) Base URL - The base URL for the AI provider. Use https://models.github.ai/inference for GitHub Models, or change this to use OpenAI compatible providers like DeepSeek or local models with LM Studio or Ollama.
+- (optional) API Key - Provide via `--apiKey`, `OPENAI_API_KEY`, or a local credentials file.
 - (optional) Ignore - A list of globs to ignore when reviewing the code. Defaults to `dist/**, node_modules/**, **/*.d.ts, **/*.lock, **/package-lock.json`.
 - (optional) Telemetry - Toggle anonymous telemetry. Defaults to True
 - (optional) Debug - Toggle debug logging. Defaults to False.
@@ -52,10 +53,11 @@ Run `npx shippie --help` to see all the options available.
 
 Shippie 🚢 also works locally to review files staged for commit. Just add some files to the staging area.
 
-Export your OPENAI_API_KEY to the shell
+Provide credentials using one of these approaches:
 
 ```shell
 export OPENAI_API_KEY=<your-api-key>
+export OPENAI_API_BASE=<optional-base-url>
 ```
 
 and run:
@@ -63,3 +65,18 @@ and run:
 ```shell
 npx shippie review
 ```
+
+Alternatively, create a local credentials file (recommended to avoid `.env`):
+
+```shell
+mkdir -p ~/.shippie
+cat > ~/.shippie/credentials.json <<'EOF'
+{
+  "OPENAI_API_KEY": "YOUR_API_KEY",
+  "OPENAI_API_BASE": "https://api.openai.com/v1"
+}
+EOF
+chmod 600 ~/.shippie/credentials.json
+```
+
+Note: `.env` is only loaded when `SHIPPIE_LOAD_DOTENV=true`.

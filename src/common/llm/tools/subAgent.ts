@@ -4,6 +4,26 @@ import { logger } from '../../utils/logger'
 import { MCPClientManager } from '../mcp/client'
 import { getAllTools } from './index'
 
+const resolveMaxModelRetries = (): number => {
+  const raw = process.env.SHIPPIE_LLM_CALL_MAX_RETRIES
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed
+  }
+  return 6
+}
+
+const resolveStepDelayMs = (): number => {
+  const raw = process.env.SHIPPIE_LLM_STEP_DELAY_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed
+  }
+  return 0
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 const submitReportTool = tool({
   description: 'Submit a report to the main agent. This is how you finish your work.',
   parameters: z.object({
@@ -65,11 +85,19 @@ Final assessment and key takeaways
 Submit the report to the main agent using the 'submit_report' tool.`
 
         // Run the sub-agent
+        const stepDelayMs = resolveStepDelayMs()
         const result = await generateText({
           model,
           prompt,
           tools,
+          maxRetries: resolveMaxModelRetries(),
           maxSteps,
+          experimental_prepareStep: async ({ stepNumber }) => {
+            if (stepDelayMs > 0 && stepNumber > 0) {
+              await sleep(stepDelayMs)
+            }
+            return undefined
+          },
         })
 
         await mcpClientManager.closeClients()

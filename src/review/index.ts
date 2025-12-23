@@ -1,4 +1,5 @@
 import { Telemetry } from '../common/api/telemetry'
+import { resolveLlmCredentials } from '../common/config/llmCredentials'
 import { getFilesWithChanges } from '../common/git/getFilesWithChanges'
 import { type ModelCreationOptions, createModel } from '../common/llm/models'
 import { getPlatformProvider } from '../common/platform/factory'
@@ -18,11 +19,23 @@ export const review = async (yargs: ReviewArgs): Promise<void> => {
   logger.debug(`Ignored file globs: ${yargs.ignore}`)
   logger.debug(`Custom instructions: ${yargs.customInstructions}`)
 
-  const trimmedBaseUrl = yargs.baseUrl?.trim()
-  const modelCreationOptions: ModelCreationOptions = trimmedBaseUrl
-    ? { baseURL: trimmedBaseUrl }
-    : {}
-  logger.debug(`Model Options: ${JSON.stringify(modelCreationOptions)}`)
+  const credentials = await resolveLlmCredentials()
+  const trimmedBaseUrl = yargs.baseUrl?.trim().replace(/\/$/, '')
+  const baseURL = trimmedBaseUrl || credentials.openaiApiBase
+
+  const trimmedApiKey = yargs.apiKey?.trim()
+  const apiKey = trimmedApiKey || credentials.openaiApiKey
+
+  const modelCreationOptions: ModelCreationOptions = {
+    ...(baseURL ? { baseURL } : {}),
+    ...(apiKey ? { apiKey } : {}),
+  }
+  logger.debug(
+    `Model Options: ${JSON.stringify({
+      baseURL: modelCreationOptions.baseURL,
+      hasApiKey: Boolean(modelCreationOptions.apiKey),
+    })}`
+  )
 
   const platformProvider = await getPlatformProvider(yargs.platform)
   logger.debug('Platform provider:', platformProvider)

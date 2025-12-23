@@ -54,6 +54,7 @@ The sub-agent has access to all base tools:
 ### System Tools
 
 - **`bash`** - Execute bash commands with safety restrictions
+- **`sandbox_exec`** - Execute bash commands in a temporary sandbox copy of the repo (excluding `.git` and `node_modules`) for verifying suspected vulnerabilities; every run requires explicit user approval
 
 ### Utility Tools
 

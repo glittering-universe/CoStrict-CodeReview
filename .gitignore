@@ -1,6 +1,7 @@
 node_modules
 .idea
 .env
+.shippie/credentials.json
 dist
 **/.cache/*.ts
 !jest.config.js

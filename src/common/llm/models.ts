@@ -3,6 +3,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModel, LanguageModelV1 } from 'ai'
+import { createRetryingFetcher } from './fetchWithRetry'
 
 type ProviderInstance = (modelId: string) => LanguageModel
 type ProviderCreator = (options?: ModelCreationOptions) => ProviderInstance
@@ -18,6 +19,8 @@ export interface ModelCreationOptions {
   baseURL?: string
   apiVersion?: string
   apiKey?: string
+  // Optional custom fetch implementation; defaults to a retrying fetch to reduce network flakiness.
+  fetch?: typeof fetch
 }
 
 // Internal helper to create the provider function
@@ -36,6 +39,11 @@ const createModelProvider = (
       options.apiVersion = process.env.AZURE_API_VERSION
     }
   }
+
+  if (!options.fetch) {
+    options.fetch = createRetryingFetcher()
+  }
+
   if (options) {
     return creator(options)
   }

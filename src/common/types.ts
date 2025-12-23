@@ -38,6 +38,7 @@ export type ReviewArgs = BaseArgs & {
   platform: PlatformOptions | string
   maxSteps: number
   baseUrl?: string
+  apiKey?: string
   ignore?: string[]
   customInstructions?: string
 }

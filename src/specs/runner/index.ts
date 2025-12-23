@@ -13,7 +13,10 @@ export class ScenarioRunner {
   private model: LanguageModelV1
   private maxSteps: number
 
-  constructor(modelString = 'openai:glm-4.5-flash', maxSteps = 25) {
+  constructor(
+    modelString = process.env.SHIPPIE_TEST_MODEL || 'openai:GLM-4-FlashX-250414',
+    maxSteps = 25
+  ) {
     this.model = createModel(modelString, {
       baseURL: process.env.OPENAI_API_BASE,
     })

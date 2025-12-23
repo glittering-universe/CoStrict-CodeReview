@@ -4,6 +4,21 @@ import { tool } from 'ai'
 import { z } from 'zod'
 
 const execAsync = promisify(exec)
+const resolveMaxOutputChars = (): number => {
+  const raw = process.env.SHIPPIE_MAX_BASH_OUTPUT_CHARS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  return 20_000
+}
+
+const truncateWithMessage = (input: string, maxChars: number): string => {
+  if (input.length <= maxChars) return input
+  const headChars = Math.max(0, Math.floor(maxChars * 0.8))
+  const tailChars = Math.max(0, maxChars - headChars)
+  const head = input.slice(0, headChars)
+  const tail = input.slice(-tailChars)
+  return `${head}\n\n... [output truncated: ${input.length} chars total, showing ${headChars}+${tailChars}] ...\n\n${tail}`
+}
 
 export const bashTool = tool({
   description:
@@ -51,7 +66,7 @@ export const bashTool = tool({
         output = 'Command executed successfully with no output.'
       }
 
-      return output
+      return truncateWithMessage(output, resolveMaxOutputChars())
     } catch (error) {
       if (error instanceof Error) {
         if ('code' in error && 'killed' in error && error.killed) {

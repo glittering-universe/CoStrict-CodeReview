@@ -5,15 +5,19 @@ import { globTool } from './glob'
 import { grepTool } from './grep'
 import { lsTool } from './ls'
 import { readFileTool } from './readFile'
+import { type SandboxExecConfirm, createSandboxExecTool } from './sandboxExec'
 import { thinkingTool } from './thinking'
 
-export const getBaseTools = (): Record<string, Tool> => ({
+export const getBaseTools = (
+  options: { sandboxConfirm?: SandboxExecConfirm } = {}
+): Record<string, Tool> => ({
   read_file: readFileTool,
   fetch: fetchTool,
   glob: globTool,
   grep: grepTool,
   ls: lsTool,
   bash: bashTool,
+  sandbox_exec: createSandboxExecTool(options.sandboxConfirm),
   thinking: thinkingTool,
 })
 
@@ -31,12 +35,13 @@ export interface GetAllToolsOptions {
   mcpClientManager?: MCPClientManager
   includeSubAgent?: boolean
   maxSteps?: number
+  sandboxConfirm?: SandboxExecConfirm
 }
 
 export const getAllTools = async (
   options: GetAllToolsOptions = {}
 ): Promise<Record<string, Tool>> => {
-  const tools = { ...getBaseTools() }
+  const tools = { ...getBaseTools({ sandboxConfirm: options.sandboxConfirm }) }
 
   if (options.platformProvider) {
     tools.read_diff = createReadDiffTool(options.platformProvider)
@@ -72,6 +77,7 @@ export {
   lsTool,
   createReadDiffTool,
   readFileTool,
+  createSandboxExecTool,
   createSubmitSummaryTool,
   createSuggestChangesTool,
   createSubAgentTool,

@@ -1,8 +1,9 @@
-import dotenv from 'dotenv'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
-dotenv.config()
+import { loadDotenv } from './common/config/dotenv'
+
+loadDotenv()
 
 export const getYargs = async () => {
   return yargs(hideBin(process.argv))
@@ -19,9 +20,9 @@ export const getYargs = async () => {
       return yargs
         .option('modelString', {
           description:
-            'The model to use for generating the review. Defaults to "openai:gpt-4o-mini".',
+            'The model to use for generating the review. Defaults to "openai:GLM-4-FlashX-250414".',
           type: 'string',
-          default: 'openai:gpt-4.1-mini',
+          default: 'openai:GLM-4-FlashX-250414',
         })
         .option('reviewLanguage', {
           description: 'Specifies the target natural language for translation',
@@ -40,7 +41,12 @@ export const getYargs = async () => {
           default: 50,
         })
         .option('baseUrl', {
-          description: 'Base URL for the platform',
+          description: 'Base URL for the AI provider (OpenAI compatible)',
+          type: 'string',
+        })
+        .option('apiKey', {
+          description:
+            'API key for the AI provider. Prefer using environment variables or a local credentials file.',
           type: 'string',
         })
         .option('ignore', {

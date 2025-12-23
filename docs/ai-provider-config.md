@@ -4,6 +4,16 @@ Shippie supports OpenAI, Anthropic, Google Gemini, GitHub Models, and local mode
 
 Just change the `modelString` to the model you want to use.
 
+## Credentials
+
+For OpenAI-compatible providers, you can provide credentials via:
+
+- Environment variables: `OPENAI_API_KEY`, `OPENAI_API_BASE`
+- CLI flags: `--apiKey`, `--baseUrl`
+- Local credentials file: `~/.shippie/credentials.json` (or `${REPO_ROOT}/.shippie/credentials.json`)
+
+Note: `.env` is only loaded when `SHIPPIE_LOAD_DOTENV=true`.
+
 eg.
 
 ```yaml

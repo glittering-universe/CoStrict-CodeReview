@@ -1,12 +1,13 @@
+import { Icon } from '@iconify/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { ConfigModal, type ConfigSettings } from './components/ConfigModal'
 import { Home } from './components/Home'
 import { Layout } from './components/Layout'
 import { ReviewSession as ReviewSessionComponent } from './components/ReviewSession'
-import type { Log, ReviewSession } from './types'
+import type { Log, ReviewSession, SandboxRequest } from './types'
 
-const DEFAULT_MODEL = 'openai:glm-4.5-flash'
+const DEFAULT_MODEL = 'openai:GLM-4-FlashX-250414'
 const HISTORY_STORAGE_KEY = 'costrict.review-history'
 
 const cloneSession = (session: ReviewSession): ReviewSession =>
@@ -42,6 +43,8 @@ function App() {
     baseUrl: '',
     environment: 'local',
   })
+  const [pendingSandbox, setPendingSandbox] = useState<SandboxRequest | null>(null)
+  const [sandboxSubmitting, setSandboxSubmitting] = useState(false)
 
   // UI State for collapsible sections
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
@@ -83,6 +86,7 @@ function App() {
     if (!modelString) return
 
     // Create new session
+    setPendingSandbox(null)
     const newSession: ReviewSession = {
       id: Date.now().toString(),
       modelString,
@@ -97,6 +101,7 @@ function App() {
     setShowConfig(false)
 
     try {
+      let receivedTerminalEvent = false
       const response = await fetch(`${API_BASE_URL}/api/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,7 +114,12 @@ function App() {
         }),
       })
 
-      if (!response.ok) throw new Error('Failed to start review')
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '')
+        throw new Error(
+          `Failed to start review (${response.status})${errorBody ? `: ${errorBody}` : ''}`
+        )
+      }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error('No reader available')
@@ -134,13 +144,33 @@ function App() {
 
           try {
             const data = JSON.parse(event.slice(6)) as Omit<Log, 'timestamp'>
+            if (data.type === 'ping') {
+              continue
+            }
+
             newLogs.push({ ...data, timestamp: Date.now() })
+
+            if (data.type === 'sandbox_request') {
+              if (!data.requestId || !data.command || !data.cwd) {
+                throw new Error('Invalid sandbox_request payload')
+              }
+              setPendingSandbox({
+                requestId: data.requestId,
+                command: data.command,
+                cwd: data.cwd,
+                timeout: data.timeout,
+              })
+            }
           } catch (parseError) {
             console.error('Failed to parse SSE event', parseError)
           }
         }
 
         if (newLogs.length === 0) continue
+
+        if (newLogs.some((log) => log.type === 'complete' || log.type === 'error')) {
+          receivedTerminalEvent = true
+        }
 
         setActiveSession((prev) => {
           if (!prev) return null
@@ -167,6 +197,34 @@ function App() {
           }
 
           return updated
+        })
+
+        if (receivedTerminalEvent) {
+          try {
+            await reader.cancel()
+          } catch {
+            // ignore
+          }
+          break
+        }
+      }
+
+      if (!receivedTerminalEvent) {
+        setActiveSession((prev) => {
+          if (!prev) return null
+          return {
+            ...prev,
+            isReviewing: false,
+            completedAt: prev.completedAt ?? Date.now(),
+            logs: [
+              ...prev.logs,
+              {
+                type: 'error',
+                message: '连接已中断（未收到完成信号）。请重试或检查后端日志。',
+                timestamp: Date.now(),
+              },
+            ],
+          }
         })
       }
     } catch (error) {
@@ -227,6 +285,63 @@ function App() {
     })
   }, [activeSession])
 
+  const respondToSandbox = async (approved: boolean) => {
+    if (!pendingSandbox) return
+    setSandboxSubmitting(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/sandbox/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: pendingSandbox.requestId,
+          approved,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('提交沙盒决策失败')
+      }
+
+      const decisionLog: Log = {
+        type: 'status',
+        message: approved
+          ? `已批准沙盒验证：${pendingSandbox.command}`
+          : `已拒绝沙盒验证：${pendingSandbox.command}`,
+        timestamp: Date.now(),
+      }
+
+      setActiveSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              logs: [...prev.logs, decisionLog],
+            }
+          : prev
+      )
+
+      setPendingSandbox(null)
+    } catch (error) {
+      setActiveSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              logs: [
+                ...prev.logs,
+                {
+                  type: 'error',
+                  message:
+                    error instanceof Error ? error.message : '无法提交沙盒审批结果',
+                  timestamp: Date.now(),
+                },
+              ],
+            }
+          : prev
+      )
+    } finally {
+      setSandboxSubmitting(false)
+    }
+  }
+
   return (
     <Layout view={view} setView={setView} activeSession={activeSession}>
       <AnimatePresence mode="sync">
@@ -274,6 +389,65 @@ function App() {
         config={config}
         onSave={setConfig}
       />
+
+      {pendingSandbox && (
+        <div className="modal-overlay">
+          <motion.div
+            initial={{ opacity: 0.14, scale: 0.94, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0.14, scale: 0.94, y: 12 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+            className="sandbox-modal"
+          >
+            <div className="modal-header">
+              <div className="modal-title">
+                <Icon icon="lucide:shield-check" width={18} height={18} />
+                <h2>沙盒验证请求</h2>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setPendingSandbox(null)}
+                aria-label="Close sandbox approval"
+              >
+                <Icon icon="lucide:x" width={18} height={18} />
+              </button>
+            </div>
+
+            <div className="sandbox-meta">
+              <p className="sandbox-label">命令</p>
+              <pre className="sandbox-code">{pendingSandbox.command}</pre>
+              <p className="sandbox-label">工作目录</p>
+              <pre className="sandbox-code">{pendingSandbox.cwd}</pre>
+              {pendingSandbox.timeout ? (
+                <p className="sandbox-hint">超时：{pendingSandbox.timeout} ms</p>
+              ) : null}
+              <p className="sandbox-hint">
+                每次沙盒执行都需要手动批准。确认后，代理将在隔离副本中运行该命令。
+              </p>
+            </div>
+
+            <div className="sandbox-actions">
+              <button
+                type="button"
+                className="sandbox-btn sandbox-btn--deny"
+                onClick={() => respondToSandbox(false)}
+                disabled={sandboxSubmitting}
+              >
+                拒绝
+              </button>
+              <button
+                type="button"
+                className="sandbox-btn sandbox-btn--approve"
+                onClick={() => respondToSandbox(true)}
+                disabled={sandboxSubmitting}
+              >
+                批准
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </Layout>
   )
 }

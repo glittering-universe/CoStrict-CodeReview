@@ -43,7 +43,7 @@ const computeGeometry = (width: number, height: number) => {
   const ringThickness = minDim * 0.17
   const orbitRadius = ringRadius + ringThickness * 0.8
   const ringWidth = clamp(minDim * 0.075, 26, 64)
-  const gap = Math.PI * 0.22
+  const gap = 0
   const arcStart = Math.PI + gap * 0.5
   const arcEnd = Math.PI - gap * 0.5
   const arcSpan = arcEnd + Math.PI * 2 - arcStart

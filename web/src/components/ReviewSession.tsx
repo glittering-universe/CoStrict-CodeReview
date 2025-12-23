@@ -1,6 +1,6 @@
 import { Icon } from '@iconify/react'
 import { motion } from 'framer-motion'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { ReviewSession as ReviewSessionType } from '../types'
@@ -31,6 +31,7 @@ export function ReviewSession({
 }: ReviewSessionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const mouseRef = useRef({ x: 0.52, y: 0.54 })
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   const initialQuality = useMemo<1 | 0.75 | 0.5>(() => {
     const isCoarsePointer =
@@ -75,15 +76,22 @@ export function ReviewSession({
       ? 'done'
       : 'idle'
 
-  const lastUpdateTimestamp = activeSession
-    ? (activeSession.logs[activeSession.logs.length - 1]?.timestamp ??
-      activeSession.startTime)
-    : null
+  useEffect(() => {
+    if (!activeSession?.isReviewing) return
+    setNowMs(Date.now())
+    const interval = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [activeSession?.isReviewing])
 
-  const elapsedLabel =
-    activeSession && lastUpdateTimestamp
-      ? formatDuration(lastUpdateTimestamp - activeSession.startTime)
-      : '--'
+  const elapsedLabel = activeSession
+    ? formatDuration(
+        (activeSession.isReviewing
+          ? nowMs
+          : (activeSession.completedAt ??
+            activeSession.logs[activeSession.logs.length - 1]?.timestamp ??
+            nowMs)) - activeSession.startTime
+      )
+    : '--'
 
   const fileCount = activeSession?.files.length ?? 0
   const stepsCount = activeSession?.logs.length ?? 0
@@ -183,6 +191,7 @@ export function ReviewSession({
                   (l) =>
                     l.type === 'status' ||
                     l.type === 'files' ||
+                    l.type === 'sandbox_request' ||
                     l.type === 'step' ||
                     l.type === 'error'
                 ).length
