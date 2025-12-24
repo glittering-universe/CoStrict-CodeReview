@@ -7,6 +7,7 @@ interface HomeProps {
   setModelString: (model: string) => void
   startReview: () => void
   setShowConfig: (show: boolean) => void
+  isReviewing: boolean
 }
 
 const clamp = (value: number, min: number, max: number) =>
@@ -17,6 +18,7 @@ export function Home({
   setModelString,
   startReview,
   setShowConfig,
+  isReviewing,
 }: HomeProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
 
@@ -83,10 +85,10 @@ export function Home({
             type="button"
             className="home-cta"
             onClick={startReview}
-            disabled={!modelString}
+            disabled={!modelString || isReviewing}
           >
             <Icon icon="lucide:play" width={18} height={18} />
-            Start Review
+            {isReviewing ? 'Review running…' : 'Start Review'}
           </button>
         </div>
       </nav>

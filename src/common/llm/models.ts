@@ -2,8 +2,9 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createAzure } from '@ai-sdk/azure'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
-import type { LanguageModel, LanguageModelV1 } from 'ai'
+import { type LanguageModel, type LanguageModelV1, wrapLanguageModel } from 'ai'
 import { createRetryingFetcher } from './fetchWithRetry'
+import { stripProviderJsonFromText } from './stripProviderJson'
 
 type ProviderInstance = (modelId: string) => LanguageModel
 type ProviderCreator = (options?: ModelCreationOptions) => ProviderInstance
@@ -63,5 +64,24 @@ export const createModel = (
   const [providerKey, modelName] = parts
   const providerInstance = createModelProvider(providerKey, options ?? {})
 
-  return providerInstance(modelName)
+  const rawModel = providerInstance(modelName) as LanguageModelV1
+
+  return wrapLanguageModel({
+    model: rawModel,
+    middleware: {
+      middlewareVersion: 'v1',
+      wrapGenerate: async ({ doGenerate }) => {
+        const result = await doGenerate()
+        return {
+          ...result,
+          text:
+            typeof result.text === 'string'
+              ? stripProviderJsonFromText(result.text)
+              : result.text,
+        }
+      },
+    },
+    modelId: modelName,
+    providerId: providerKey,
+  })
 }

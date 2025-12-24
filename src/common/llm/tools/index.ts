@@ -5,11 +5,19 @@ import { globTool } from './glob'
 import { grepTool } from './grep'
 import { lsTool } from './ls'
 import { readFileTool } from './readFile'
-import { type SandboxExecConfirm, createSandboxExecTool } from './sandboxExec'
+import { reportBugTool } from './reportBug'
+import {
+  type SandboxExecConfirm,
+  type SandboxExecOnEvent,
+  createSandboxExecTool,
+} from './sandboxExec'
 import { thinkingTool } from './thinking'
 
 export const getBaseTools = (
-  options: { sandboxConfirm?: SandboxExecConfirm } = {}
+  options: {
+    sandboxConfirm?: SandboxExecConfirm
+    sandboxOnEvent?: SandboxExecOnEvent
+  } = {}
 ): Record<string, Tool> => ({
   read_file: readFileTool,
   fetch: fetchTool,
@@ -17,8 +25,9 @@ export const getBaseTools = (
   grep: grepTool,
   ls: lsTool,
   bash: bashTool,
-  sandbox_exec: createSandboxExecTool(options.sandboxConfirm),
+  sandbox_exec: createSandboxExecTool(options.sandboxConfirm, options.sandboxOnEvent),
   thinking: thinkingTool,
+  report_bug: reportBugTool,
 })
 
 import type { LanguageModelV1 } from 'ai'
@@ -36,12 +45,18 @@ export interface GetAllToolsOptions {
   includeSubAgent?: boolean
   maxSteps?: number
   sandboxConfirm?: SandboxExecConfirm
+  sandboxOnEvent?: SandboxExecOnEvent
 }
 
 export const getAllTools = async (
   options: GetAllToolsOptions = {}
 ): Promise<Record<string, Tool>> => {
-  const tools = { ...getBaseTools({ sandboxConfirm: options.sandboxConfirm }) }
+  const tools = {
+    ...getBaseTools({
+      sandboxConfirm: options.sandboxConfirm,
+      sandboxOnEvent: options.sandboxOnEvent,
+    }),
+  }
 
   if (options.platformProvider) {
     tools.read_diff = createReadDiffTool(options.platformProvider)

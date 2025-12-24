@@ -1,7 +1,8 @@
 import { Icon } from '@iconify/react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useMemo, useState } from 'react'
+import { type SyntheticEvent, useEffect, useMemo, useState } from 'react'
 import type { Log } from '../types'
+import { SandboxTerminal } from './SandboxTerminal'
 
 const formatJson = (raw: string) => {
   try {
@@ -24,6 +25,79 @@ const normalizeToolNameKey = (rawName: string): string => {
     .toLowerCase()
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const isProviderToolCallsChunk = (value: unknown): boolean => {
+  if (!isRecord(value)) return false
+
+  if (Array.isArray(value.choices)) {
+    return value.choices.some((choice) => isProviderToolCallsChunk(choice))
+  }
+
+  const delta = value.delta
+  if (!isRecord(delta)) return false
+  return Array.isArray(delta.tool_calls)
+}
+
+const extractJsonSpan = (
+  text: string,
+  startIndex: number
+): { endIndex: number; json: string } | null => {
+  const startChar = text[startIndex]
+  if (startChar !== '{' && startChar !== '[') return null
+
+  const stack: Array<'}' | ']'> = [startChar === '{' ? '}' : ']']
+  let inString = false
+  let escaped = false
+
+  for (let i = startIndex + 1; i < text.length; i += 1) {
+    const ch = text[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (ch === '\\') {
+        escaped = true
+        continue
+      }
+      if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+
+    if (ch === '{') {
+      stack.push('}')
+      continue
+    }
+    if (ch === '[') {
+      stack.push(']')
+      continue
+    }
+
+    if (ch === '}' || ch === ']') {
+      const expected = stack.pop()
+      if (!expected || ch !== expected) return null
+      if (stack.length === 0) {
+        return {
+          endIndex: i + 1,
+          json: text.slice(startIndex, i + 1),
+        }
+      }
+    }
+  }
+
+  return null
+}
+
 const extractJsonBlocks = (text?: string) => {
   if (!text) return { cleanText: '', jsonBlocks: [] as string[] }
   const jsonBlocks: string[] = []
@@ -31,27 +105,15 @@ const extractJsonBlocks = (text?: string) => {
   let i = 0
 
   while (i < text.length) {
-    if (text[i] === '{') {
-      let depth = 0
-      let j = i
-      while (j < text.length) {
-        if (text[j] === '{') depth++
-        else if (text[j] === '}') {
-          depth--
-          if (depth === 0) {
-            j++
-            break
-          }
-        }
-        j++
-      }
-
-      if (depth === 0) {
-        const candidate = text.slice(i, j)
+    if (text[i] === '{' || text[i] === '[') {
+      const span = extractJsonSpan(text, i)
+      if (span) {
         try {
-          JSON.parse(candidate)
-          jsonBlocks.push(candidate)
-          i = j
+          const parsed = JSON.parse(span.json) as unknown
+          if (!isProviderToolCallsChunk(parsed)) {
+            jsonBlocks.push(span.json)
+          }
+          i = span.endIndex
           continue
         } catch {
           // fall through to treat as text
@@ -72,6 +134,7 @@ interface LogItemProps {
   displayableIndex: number
   isExpanded: boolean
   toggleStep: (index: number) => void
+  allLogs: Log[]
 }
 
 const truncate = (value: string, maxLength: number) => {
@@ -86,9 +149,6 @@ const safeStringify = (value: unknown) => {
     return String(value)
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const getToolIcon = (toolName?: string) => {
   const normalizedName = toolName ? normalizeToolNameKey(toolName) : ''
@@ -116,6 +176,8 @@ const getToolIcon = (toolName?: string) => {
       return 'lucide:wand-2'
     case 'submit_summary':
       return 'lucide:send'
+    case 'report_bug':
+      return 'lucide:bug'
     default:
       return 'lucide:tool'
   }
@@ -150,6 +212,8 @@ const summarizeArgs = (toolName: string | undefined, args: unknown): string => {
         return ['goal']
       case 'submit_summary':
         return ['report']
+      case 'report_bug':
+        return ['title']
       default:
         return ['command', 'path', 'pattern', 'cwd', 'url', 'goal', 'report']
     }
@@ -253,7 +317,16 @@ export function LogItem({
   displayableIndex,
   isExpanded,
   toggleStep,
+  allLogs,
 }: LogItemProps) {
+  const [detailsOpenState, setDetailsOpenState] = useState<Record<string, boolean>>({})
+
+  const handleDetailsToggle =
+    (key: string) => (event: SyntheticEvent<HTMLDetailsElement>) => {
+      const target = event.currentTarget
+      setDetailsOpenState((prev) => ({ ...prev, [key]: target.open }))
+    }
+
   if (log.type === 'status') {
     const { cleanText, jsonBlocks } = extractJsonBlocks(log.message)
     return (
@@ -269,7 +342,7 @@ export function LogItem({
           {jsonBlocks.length > 0 && (
             <details className="json-snippet-details">
               <summary className="json-snippet-summary">
-                <span>原始数据</span>
+                <span>结构化数据</span>
                 <span className="tool-pill">{jsonBlocks.length} 个 JSON</span>
               </summary>
               <div className="json-snippet-group">
@@ -330,8 +403,118 @@ export function LogItem({
     )
   }
 
+  if (log.type === 'sandbox_run_start') {
+    const runId = log.runId ?? log.toolCallId ?? ''
+    const runLogs = runId
+      ? allLogs.filter(
+          (entry) =>
+            entry.runId === runId &&
+            (entry.type === 'sandbox_run_start' ||
+              entry.type === 'sandbox_run_output' ||
+              entry.type === 'sandbox_run_end')
+        )
+      : [log]
+
+    const toolKey = runId ? `sandbox:${runId}` : `sandbox:${index}`
+    const commandSummary = log.command
+      ? truncate(log.command.replace(/\s+/g, ' ').trim(), 140)
+      : ''
+    const cwdSummary = log.cwd ? truncate(log.cwd, 80) : ''
+
+    const toolResult = allLogs
+      .filter((entry) => entry.type === 'step' && entry.step?.toolResults)
+      .flatMap((entry) =>
+        (entry.step?.toolResults ?? []).filter((result) => {
+          if (typeof result.toolCallId !== 'string') return false
+          return result.toolCallId === runId
+        })
+      )[0]
+
+    const toolResultText =
+      toolResult && typeof toolResult.result === 'string' ? toolResult.result : null
+
+    return (
+      <motion.div
+        initial={{ opacity: 0.14, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="progress-step-row"
+      >
+        <div className="progress-step-number">{displayableIndex}</div>
+        <div className="progress-step-content">
+          <details
+            className="tool-call"
+            open={detailsOpenState[toolKey] ?? true}
+            onToggle={handleDetailsToggle(toolKey)}
+          >
+            <summary className="tool-call-summary">
+              <span className="tool-call-summaryLeft">
+                <Icon icon={getToolIcon('sandbox_exec')} width={16} height={16} />
+                <span className="tool-call-name">sandbox_exec</span>
+              </span>
+              {commandSummary ? (
+                <span className="tool-call-summaryText">{commandSummary}</span>
+              ) : null}
+              <span className="tool-pill">调用</span>
+            </summary>
+            <div className="tool-call-body">
+              <div className="tool-call-section">
+                <div className="tool-call-sectionHeader">
+                  <span>参数</span>
+                  <CopyButton
+                    text={normalizeText({
+                      command: log.command,
+                      cwd: log.cwd,
+                      timeout: log.timeout,
+                      preserveSandbox: log.preserveSandbox,
+                    })}
+                  />
+                </div>
+                <KeyValueTable
+                  value={{
+                    command: log.command,
+                    cwd: log.cwd,
+                    timeout: log.timeout,
+                    preserveSandbox: log.preserveSandbox,
+                  }}
+                />
+                {cwdSummary ? (
+                  <div className="log-meta">
+                    <span className="tool-pill">cwd: {cwdSummary}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <SandboxTerminal logs={runLogs} />
+
+              {toolResultText ? (
+                <details className="tool-call-result">
+                  <summary className="tool-call-resultSummary">
+                    <span>工具结果</span>
+                  </summary>
+                  <div className="tool-call-section">
+                    <div className="tool-call-sectionHeader">
+                      <span>结果</span>
+                      <CopyButton text={toolResultText} />
+                    </div>
+                    <pre className="tool-detail-body">{toolResultText}</pre>
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </details>
+        </div>
+      </motion.div>
+    )
+  }
+
   if (log.type === 'step' && log.step) {
-    const toolCount = log.step.toolCalls?.length || 0
+    const allToolCalls = log.step.toolCalls ?? []
+    const toolCount = allToolCalls.length
+    const primaryTool = toolCount === 1 ? allToolCalls[0] : undefined
+    const visibleToolCalls = allToolCalls.filter(
+      (tool) => normalizeToolNameKey(tool.toolName ?? '') !== 'sandbox_exec'
+    )
+    const visibleToolCount = visibleToolCalls.length
 
     const stableSerialize = (value: unknown) => {
       if (value === undefined) return 'undefined'
@@ -351,24 +534,16 @@ export function LogItem({
       }
     }
 
-    const toolKeyCounts = new Map<string, number>()
-    const getToolKey = (tool: {
-      toolCallId?: string
-      toolName?: string
-      args: unknown
-    }) => {
-      if (tool.toolCallId) return tool.toolCallId
-      const base = `${tool.toolName ?? 'tool'}:${stableSerialize(tool.args)}`
-      const nextCount = (toolKeyCounts.get(base) ?? 0) + 1
-      toolKeyCounts.set(base, nextCount)
-      return `${base}#${nextCount}`
-    }
-
     const { cleanText, jsonBlocks } = extractJsonBlocks(log.step.text)
+    const primaryToolSummary = primaryTool
+      ? summarizeArgs(primaryTool.toolName, primaryTool.args)
+      : ''
     const displayText =
       cleanText ||
       log.step.text ||
-      `处理包含 ${toolCount} 个工具${toolCount !== 1 ? 's' : ''} 的步骤`
+      (primaryTool
+        ? `${primaryTool.toolName ?? '工具'}${primaryToolSummary ? ` ${primaryToolSummary}` : ''}`
+        : `处理包含 ${toolCount} 个工具${toolCount !== 1 ? 's' : ''} 的步骤`)
 
     return (
       <motion.div
@@ -391,7 +566,7 @@ export function LogItem({
               {jsonBlocks.length > 0 && (
                 <details className="json-snippet-details">
                   <summary className="json-snippet-summary">
-                    <span>原始数据</span>
+                    <span>结构化数据</span>
                     <span className="tool-pill">{jsonBlocks.length} 个 JSON</span>
                   </summary>
                   <div className="json-snippet-group">
@@ -404,7 +579,7 @@ export function LogItem({
                 </details>
               )}
             </div>
-            {toolCount > 0 && (
+            {visibleToolCount > 0 && (
               <button
                 type="button"
                 onClick={() => toggleStep(index)}
@@ -420,7 +595,7 @@ export function LogItem({
             )}
           </div>
           <AnimatePresence>
-            {isExpanded && log.step.toolCalls && toolCount > 0 && (
+            {isExpanded && visibleToolCount > 0 && (
               <motion.div
                 initial={{ height: 0, opacity: 0.14 }}
                 animate={{ height: 'auto', opacity: 1 }}
@@ -429,8 +604,15 @@ export function LogItem({
                 className="progress-step-tools"
               >
                 <div className="progress-step-toolsList">
-                  {log.step.toolCalls.map((tool) => {
+                  {visibleToolCalls.map((tool, toolIndex) => {
+                    const toolKey =
+                      tool.toolCallId ??
+                      `${toolIndex}:${tool.toolName ?? 'tool'}:${stableSerialize(tool.args)}`
                     const summary = summarizeArgs(tool.toolName, tool.args)
+                    const normalizedToolName = tool.toolName
+                      ? normalizeToolNameKey(tool.toolName)
+                      : ''
+                    const isBugCard = normalizedToolName === 'report_bug'
                     const toolResults = log.step?.toolResults ?? []
                     const matchingResults = toolResults.filter((result) => {
                       if (tool.toolCallId && result.toolCallId) {
@@ -442,8 +624,20 @@ export function LogItem({
                       return false
                     })
 
+                    const status =
+                      isBugCard &&
+                      isRecord(tool.args) &&
+                      typeof tool.args.status === 'string'
+                        ? String(tool.args.status)
+                        : null
+
                     return (
-                      <details key={getToolKey(tool)} className="tool-call">
+                      <details
+                        key={toolKey}
+                        className={`tool-call${isBugCard ? ' tool-call--bug' : ''}`}
+                        open={detailsOpenState[toolKey] ?? false}
+                        onToggle={handleDetailsToggle(toolKey)}
+                      >
                         <summary className="tool-call-summary">
                           <span className="tool-call-summaryLeft">
                             <Icon
@@ -458,7 +652,18 @@ export function LogItem({
                           {summary ? (
                             <span className="tool-call-summaryText">{summary}</span>
                           ) : null}
-                          <span className="tool-pill">调用</span>
+                          {isBugCard && status ? (
+                            <span
+                              className={`tool-pill ${
+                                status.toUpperCase() === 'VERIFIED'
+                                  ? 'tool-pill--ok'
+                                  : 'tool-pill--warn'
+                              }`}
+                            >
+                              {status.toUpperCase() === 'VERIFIED' ? '已验证' : '未验证'}
+                            </span>
+                          ) : null}
+                          <span className="tool-pill">{isBugCard ? 'Bug' : '调用'}</span>
                         </summary>
                         <div className="tool-call-body">
                           <div className="tool-call-section">
@@ -470,13 +675,20 @@ export function LogItem({
                           </div>
 
                           {matchingResults.length > 0 ? (
-                            <details className="tool-call-result">
+                            <details
+                              className="tool-call-result"
+                              open={detailsOpenState[`${toolKey}:result`] ?? false}
+                              onToggle={handleDetailsToggle(`${toolKey}:result`)}
+                            >
                               <summary className="tool-call-resultSummary">
                                 <span>输出</span>
                               </summary>
-                              {matchingResults.map((result) => (
+                              {matchingResults.map((result, resultIndex) => (
                                 <div
-                                  key={result.toolCallId ?? getToolKey(tool)}
+                                  key={
+                                    result.toolCallId ??
+                                    `${toolKey}:result:${resultIndex}`
+                                  }
                                   className="tool-call-section"
                                 >
                                   <div className="tool-call-sectionHeader">

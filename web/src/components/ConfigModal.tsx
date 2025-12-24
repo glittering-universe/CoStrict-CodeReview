@@ -9,11 +9,20 @@ export interface ConfigSettings {
   baseUrl: string
 }
 
+type EffectiveLlmConfig = {
+  baseUrl: string
+  baseUrlSource: 'env' | 'file' | 'missing'
+  apiKeyMasked: string
+  apiKeySource: 'env' | 'file' | 'missing'
+  hasApiKey: boolean
+}
+
 interface ConfigModalProps {
   isOpen: boolean
   onClose: () => void
   config: ConfigSettings
   onSave: (newConfig: ConfigSettings) => void
+  apiBaseUrl: string
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
@@ -21,13 +30,45 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   onClose,
   config,
   onSave,
+  apiBaseUrl,
 }) => {
   const [activeTab, setActiveTab] = useState('general')
   const [localConfig, setLocalConfig] = useState(config)
+  const [effective, setEffective] = useState<EffectiveLlmConfig | null>(null)
 
   useEffect(() => {
     setLocalConfig(config)
   }, [config])
+
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+
+    const fetchEffective = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/llm/effective`)
+        if (!response.ok) throw new Error('无法获取当前生效的 API 配置')
+        const data = (await response.json()) as EffectiveLlmConfig
+        if (!cancelled) setEffective(data)
+      } catch {
+        if (!cancelled) {
+          setEffective({
+            baseUrl: '',
+            baseUrlSource: 'missing',
+            apiKeyMasked: '',
+            apiKeySource: 'missing',
+            hasApiKey: false,
+          })
+        }
+      }
+    }
+
+    void fetchEffective()
+
+    return () => {
+      cancelled = true
+    }
+  }, [apiBaseUrl, isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -45,6 +86,33 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     setLocalConfig(newConfig)
     onSave(newConfig)
   }
+
+  const normalizeBaseUrl = (value: string) => value.trim().replace(/\/$/, '')
+
+  const maskApiKey = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return ''
+    if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}…`
+    return `${trimmed.slice(0, 3)}…${trimmed.slice(-4)}`
+  }
+
+  const effectiveBaseUrl = localConfig.baseUrl.trim()
+    ? normalizeBaseUrl(localConfig.baseUrl)
+    : effective?.baseUrl
+      ? normalizeBaseUrl(effective.baseUrl)
+      : ''
+
+  const effectiveApiKeyMasked = localConfig.apiKey.trim()
+    ? maskApiKey(localConfig.apiKey)
+    : (effective?.apiKeyMasked ?? '')
+
+  const effectiveApiKeySource = localConfig.apiKey.trim()
+    ? 'custom'
+    : (effective?.apiKeySource ?? 'missing')
+
+  const effectiveBaseUrlSource = localConfig.baseUrl.trim()
+    ? 'custom'
+    : (effective?.baseUrlSource ?? 'missing')
 
   const navItems = [
     { id: 'general', label: '常规设置', icon: 'lucide:settings' },
@@ -144,6 +212,49 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 <>
                   <div className="settings-row">
                     <div className="settings-info">
+                      <div className="settings-label">当前生效</div>
+                      <p className="settings-description">
+                        展示本次将用于模型调用的实际配置（自定义优先，其次使用服务端默认）。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <div className="effective-config">
+                        <div className="effective-configRow">
+                          <span className="effective-configLabel">API Key</span>
+                          <span className="effective-configValue">
+                            {effectiveApiKeyMasked || '未配置'}
+                          </span>
+                          <span className="effective-configSource">
+                            {effectiveApiKeySource === 'custom'
+                              ? '自定义'
+                              : effectiveApiKeySource === 'env'
+                                ? '环境变量'
+                                : effectiveApiKeySource === 'file'
+                                  ? '凭据文件'
+                                  : '缺失'}
+                          </span>
+                        </div>
+                        <div className="effective-configRow">
+                          <span className="effective-configLabel">Base URL</span>
+                          <span className="effective-configValue">
+                            {effectiveBaseUrl || '未配置'}
+                          </span>
+                          <span className="effective-configSource">
+                            {effectiveBaseUrlSource === 'custom'
+                              ? '自定义'
+                              : effectiveBaseUrlSource === 'env'
+                                ? '环境变量'
+                                : effectiveBaseUrlSource === 'file'
+                                  ? '凭据文件'
+                                  : '缺失'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-info">
                       <label className="settings-label" htmlFor="settings-apiKey">
                         API 密钥
                       </label>
@@ -158,7 +269,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         value={localConfig.apiKey}
                         onChange={(e) => handleChange('apiKey', e.target.value)}
                         className="settings-input"
-                        placeholder="sk-..."
+                        placeholder={
+                          effective?.apiKeyMasked ? effective.apiKeyMasked : 'sk-...'
+                        }
                       />
                     </div>
                   </div>
@@ -176,7 +289,11 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         value={localConfig.baseUrl}
                         onChange={(e) => handleChange('baseUrl', e.target.value)}
                         className="settings-input"
-                        placeholder="https://api.openai.com/v1"
+                        placeholder={
+                          effective?.baseUrl
+                            ? normalizeBaseUrl(effective.baseUrl)
+                            : 'https://api.openai.com/v1'
+                        }
                       />
                     </div>
                   </div>

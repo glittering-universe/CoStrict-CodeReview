@@ -14,7 +14,7 @@ export class ScenarioRunner {
   private maxSteps: number
 
   constructor(
-    modelString = process.env.SHIPPIE_TEST_MODEL || 'openai:GLM-4-FlashX-250414',
+    modelString = process.env.SHIPPIE_TEST_MODEL || 'openai:GLM-4-Flash',
     maxSteps = 25
   ) {
     this.model = createModel(modelString, {

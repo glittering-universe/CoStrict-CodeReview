@@ -20,9 +20,9 @@ export const getYargs = async () => {
       return yargs
         .option('modelString', {
           description:
-            'The model to use for generating the review. Defaults to "openai:GLM-4-FlashX-250414".',
+            'The model to use for generating the review. Defaults to "openai:GLM-4-Flash".',
           type: 'string',
-          default: 'openai:GLM-4-FlashX-250414',
+          default: 'openai:GLM-4-Flash',
         })
         .option('reviewLanguage', {
           description: 'Specifies the target natural language for translation',

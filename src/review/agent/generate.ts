@@ -57,7 +57,8 @@ export const reviewAgent = async (
   maxSteps: number,
   tools: Record<string, Tool>,
   onSummarySubmit?: () => void,
-  onStep?: (step: ReviewStepEvent) => void | Promise<void>
+  onStep?: (step: ReviewStepEvent) => void | Promise<void>,
+  abortSignal?: AbortSignal
   // biome-ignore lint/suspicious/noExplicitAny: fine
 ): Promise<GenerateTextResult<Record<string, any>, string>> => {
   const stepDelayMs = resolveStepDelayMs()
@@ -65,6 +66,7 @@ export const reviewAgent = async (
     model,
     prompt,
     tools,
+    abortSignal,
     maxRetries: resolveMaxModelRetries(),
     maxSteps,
     experimental_prepareStep: async ({ stepNumber }) => {

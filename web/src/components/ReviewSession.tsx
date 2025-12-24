@@ -9,12 +9,14 @@ import { LogItem } from './LogItem'
 
 interface ReviewSessionProps {
   activeSession: ReviewSessionType | null
-  setView: (view: 'home' | 'review') => void
+  setView: (view: 'home' | 'review' | 'history') => void
   expandedSteps: Set<number>
   toggleStep: (index: number) => void
   expandAll: boolean
   toggleExpandAll: () => void
   logsEndRef: RefObject<HTMLDivElement | null>
+  autoApproveSandbox: boolean
+  setAutoApproveSandbox: (value: boolean) => void
 }
 
 const clamp = (value: number, min: number, max: number) =>
@@ -28,10 +30,28 @@ export function ReviewSession({
   expandAll,
   toggleExpandAll,
   logsEndRef,
+  autoApproveSandbox,
+  setAutoApproveSandbox,
 }: ReviewSessionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const mouseRef = useRef({ x: 0.52, y: 0.54 })
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [shouldFollow, setShouldFollow] = useState(true)
+  const sessionId = activeSession?.id
+  const timelineEntries = useMemo(() => {
+    const logs = activeSession?.logs ?? []
+    return logs
+      .map((log, index) => ({ log, index }))
+      .filter(
+        ({ log }) =>
+          log.type === 'status' ||
+          log.type === 'files' ||
+          log.type === 'sandbox_request' ||
+          log.type === 'sandbox_run_start' ||
+          log.type === 'step' ||
+          log.type === 'error'
+      )
+  }, [activeSession?.logs])
 
   const initialQuality = useMemo<1 | 0.75 | 0.5>(() => {
     const isCoarsePointer =
@@ -43,6 +63,13 @@ export function ReviewSession({
 
   const renderQuality = initialQuality
 
+  const isNearBottom = () => {
+    const root = rootRef.current
+    if (!root) return true
+    const threshold = 96
+    return root.scrollHeight - root.scrollTop - root.clientHeight <= threshold
+  }
+
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = rootRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -51,6 +78,10 @@ export function ReviewSession({
       x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
       y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
     }
+  }
+
+  const onScroll = () => {
+    setShouldFollow(isNearBottom())
   }
 
   const formatDuration = (ms: number) => {
@@ -83,6 +114,21 @@ export function ReviewSession({
     return () => clearInterval(interval)
   }, [activeSession?.isReviewing])
 
+  useEffect(() => {
+    if (!sessionId) return
+    setShouldFollow(true)
+    logsEndRef.current?.scrollIntoView({ behavior: 'auto' })
+  }, [logsEndRef, sessionId])
+
+  const scrollToken = `${activeSession?.logs.length ?? 0}:${activeSession?.finalResult ? 1 : 0}`
+
+  useEffect(() => {
+    if (!activeSession) return
+    if (!shouldFollow) return
+    if (scrollToken === '0:0') return
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeSession, logsEndRef, scrollToken, shouldFollow])
+
   const elapsedLabel = activeSession
     ? formatDuration(
         (activeSession.isReviewing
@@ -94,11 +140,16 @@ export function ReviewSession({
     : '--'
 
   const fileCount = activeSession?.files.length ?? 0
-  const stepsCount = activeSession?.logs.length ?? 0
+  const stepsCount = timelineEntries.length
   const modelName = activeSession?.modelString ?? '未开始'
 
   return (
-    <div ref={rootRef} className="review-root" onPointerMove={onPointerMove}>
+    <div
+      ref={rootRef}
+      className="review-root"
+      onPointerMove={onPointerMove}
+      onScroll={onScroll}
+    >
       <EnergyArcCanvas
         className="review-canvas"
         mouse={mouseRef}
@@ -160,6 +211,21 @@ export function ReviewSession({
             </div>
             <div className="overview-value">{stepsCount}</div>
           </div>
+          <div className="overview-card overview-card--toggle">
+            <div className="overview-label">
+              <Icon icon="lucide:shield-check" width={16} height={16} /> 沙盒自动批准
+            </div>
+            <label className="toggle-switch">
+              <span className="sr-only">Toggle sandbox auto approval</span>
+              <input
+                type="checkbox"
+                checked={autoApproveSandbox}
+                onChange={(event) => setAutoApproveSandbox(event.target.checked)}
+              />
+              <span className="toggle-track" aria-hidden />
+              <span className="toggle-thumb" aria-hidden />
+            </label>
+          </div>
         </div>
 
         <div className="timeline-card">
@@ -184,28 +250,18 @@ export function ReviewSession({
           </div>
 
           <div className="timeline-list">
-            {activeSession?.logs.map((log, i) => {
-              const displayableIndex = activeSession.logs
-                .slice(0, i + 1)
-                .filter(
-                  (l) =>
-                    l.type === 'status' ||
-                    l.type === 'files' ||
-                    l.type === 'sandbox_request' ||
-                    l.type === 'step' ||
-                    l.type === 'error'
-                ).length
-
-              const isExpanded = expandedSteps.has(i) || expandAll
+            {timelineEntries.map(({ log, index }, visibleIndex) => {
+              const isExpanded = expandedSteps.has(index) || expandAll
 
               return (
                 <LogItem
-                  key={log.timestamp}
+                  key={`${log.timestamp}:${index}`}
                   log={log}
-                  index={i}
-                  displayableIndex={displayableIndex}
+                  index={index}
+                  displayableIndex={visibleIndex + 1}
                   isExpanded={isExpanded}
                   toggleStep={toggleStep}
+                  allLogs={activeSession?.logs ?? []}
                 />
               )
             })}

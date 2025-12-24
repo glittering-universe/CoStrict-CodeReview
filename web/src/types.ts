@@ -24,15 +24,38 @@ export type SandboxRequest = {
 }
 
 export type Log = {
-  type: 'status' | 'error' | 'files' | 'step' | 'complete' | 'sandbox_request' | 'ping'
+  type:
+    | 'status'
+    | 'error'
+    | 'files'
+    | 'step'
+    | 'complete'
+    | 'sandbox_request'
+    | 'sandbox_run_start'
+    | 'sandbox_run_output'
+    | 'sandbox_run_end'
+    | 'ping'
   message?: string
   files?: string[]
   step?: Step
   result?: string
   requestId?: string
+  toolCallId?: string
   command?: string
   cwd?: string
   timeout?: number
+  preserveSandbox?: boolean
+  runId?: string
+  stream?: 'system' | 'stdout' | 'stderr'
+  text?: string
+  status?: string
+  exitCode?: number | string | null
+  signal?: string | null
+  durationMs?: number
+  sandboxRoot?: string
+  sandboxCwd?: string
+  truncated?: boolean
+  errorMessage?: string
   timestamp: number
 }
 
