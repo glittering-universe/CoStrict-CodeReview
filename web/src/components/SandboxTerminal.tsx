@@ -180,13 +180,23 @@ export function SandboxTerminal({ logs }: SandboxTerminalProps) {
   }, [scrollToken, shouldFollow])
 
   const status = statusLabel(activeRun?.status)
+  const isRunning = Boolean(activeRun && !activeRun.endedAt)
+  const displayPath = activeRun?.sandboxCwd ?? activeRun?.cwd ?? '.'
+
+  const jumpToBottom = () => {
+    const node = terminalRef.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+    setShouldFollow(true)
+  }
 
   return (
     <div className="terminal-card">
-      <div className="terminal-card-header">
-        <div>
-          <p className="terminal-title">沙盒终端</p>
-          <p className="terminal-subtitle">实时跟踪 sandbox_exec 的执行过程与输出</p>
+      <div className="terminal-windowBar">
+        <div className="terminal-windowDots" aria-hidden>
+          <span className="terminal-dot terminal-dot--red" />
+          <span className="terminal-dot terminal-dot--yellow" />
+          <span className="terminal-dot terminal-dot--green" />
         </div>
 
         {runs.length > 1 ? (
@@ -206,36 +216,49 @@ export function SandboxTerminal({ logs }: SandboxTerminalProps) {
             </select>
           </div>
         ) : null}
-      </div>
 
-      {activeRun ? (
-        <>
-          <div className="terminal-metaRow">
-            <span
-              className={`tool-pill ${
-                status.variant === 'ok'
-                  ? 'tool-pill--ok'
-                  : status.variant === 'warn'
-                    ? 'tool-pill--warn'
-                    : ''
-              }`}
-            >
-              {status.label}
-            </span>
+        <div className="terminal-windowTitle">
+          <span className="terminal-windowHost">shippie-sandbox</span>
+          <span className="terminal-windowSep">•</span>
+          <span className="terminal-windowPath">{displayPath}</span>
+        </div>
+
+        <div className="terminal-windowMeta">
+          <span
+            className={`tool-pill ${
+              status.variant === 'ok'
+                ? 'tool-pill--ok'
+                : status.variant === 'warn'
+                  ? 'tool-pill--warn'
+                  : ''
+            }`}
+          >
+            {status.label}
+          </span>
+          {activeRun ? (
             <span className="tool-pill">
               <Icon icon="lucide:clock-3" width={14} height={14} />
               {formatDuration(activeRun.durationMs)}
             </span>
-            {activeRun.exitCode !== undefined ? (
-              <span className="tool-pill">
-                Exit {String(activeRun.exitCode)}
-                {activeRun.signal ? ` (${activeRun.signal})` : ''}
-              </span>
-            ) : null}
-            {activeRun.truncated ? <span className="tool-pill">Truncated</span> : null}
-          </div>
+          ) : null}
+          {isRunning ? <span className="tool-pill">LIVE</span> : null}
+        </div>
+      </div>
 
+      {activeRun ? (
+        <>
           <div className="terminal-body" ref={terminalRef} onScroll={onScroll}>
+            {!shouldFollow ? (
+              <button
+                type="button"
+                className="terminal-follow"
+                onClick={jumpToBottom}
+                title="跟随最新输出"
+              >
+                <Icon icon="lucide:arrow-down" width={14} height={14} />
+                跟随
+              </button>
+            ) : null}
             <div className="terminal-pre" role="log" aria-label="Sandbox terminal output">
               {activeRun.chunks.length === 0 ? (
                 <span className="terminal-chunk terminal-chunk--system">
@@ -251,7 +274,18 @@ export function SandboxTerminal({ logs }: SandboxTerminalProps) {
                   </span>
                 ))
               )}
+              {isRunning ? <span className="terminal-cursor" aria-hidden /> : null}
             </div>
+          </div>
+
+          <div className="terminal-metaRow">
+            {activeRun.exitCode !== undefined ? (
+              <span className="tool-pill">
+                Exit {String(activeRun.exitCode)}
+                {activeRun.signal ? ` (${activeRun.signal})` : ''}
+              </span>
+            ) : null}
+            {activeRun.truncated ? <span className="tool-pill">Truncated</span> : null}
           </div>
         </>
       ) : (

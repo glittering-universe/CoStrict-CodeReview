@@ -373,65 +373,60 @@ export function LogItem({
   }
 
   if (log.type === 'sandbox_request') {
-    return (
-      <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="progress-step-row"
-      >
-        <div className="progress-step-number">{displayableIndex}</div>
-        <div className="progress-step-content">
-          <div className="progress-step-top">
-            <div className="progress-step-body">
-              <div className="log-meta">
-                <span className="tool-pill">等待沙盒批准</span>
-              </div>
-              <div className="sandbox-inline">
-                <p className="sandbox-label">命令</p>
-                <pre className="sandbox-code sandbox-code--inline">
-                  {log.command ?? '未知命令'}
-                </pre>
-                <p className="sandbox-label">工作目录</p>
-                <pre className="sandbox-code sandbox-code--inline">
-                  {log.cwd ?? '未知路径'}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    )
-  }
+    const toolCallId = log.toolCallId ?? ''
+    const toolKey = toolCallId
+      ? `sandbox-request:${toolCallId}`
+      : `sandbox-request:${index}`
 
-  if (log.type === 'sandbox_run_start') {
-    const runId = log.runId ?? log.toolCallId ?? ''
-    const runLogs = runId
+    const runLogs = toolCallId
       ? allLogs.filter(
           (entry) =>
-            entry.runId === runId &&
+            entry.runId === toolCallId &&
             (entry.type === 'sandbox_run_start' ||
               entry.type === 'sandbox_run_output' ||
               entry.type === 'sandbox_run_end')
         )
-      : [log]
+      : []
 
-    const toolKey = runId ? `sandbox:${runId}` : `sandbox:${index}`
+    const runEnd = runLogs.find((entry) => entry.type === 'sandbox_run_end')
+    const runStarted = runLogs.some((entry) => entry.type === 'sandbox_run_start')
+
+    const statusPill = (() => {
+      if (!runStarted) {
+        return { label: '等待沙盒批准', variant: 'neutral' as const }
+      }
+      if (runEnd && typeof runEnd.status === 'string') {
+        const normalized = runEnd.status.toLowerCase()
+        if (normalized === 'success') return { label: '成功', variant: 'ok' as const }
+        if (normalized === 'nonzero')
+          return { label: '非 0 退出', variant: 'warn' as const }
+        if (normalized === 'timed_out') return { label: '超时', variant: 'warn' as const }
+        if (normalized === 'denied') return { label: '已拒绝', variant: 'warn' as const }
+        if (normalized === 'dangerous')
+          return { label: '已拦截', variant: 'warn' as const }
+        if (normalized === 'error') return { label: '错误', variant: 'warn' as const }
+      }
+      return { label: '运行中', variant: 'neutral' as const }
+    })()
+
+    const toolResult = toolCallId
+      ? allLogs
+          .filter((entry) => entry.type === 'step' && entry.step?.toolResults)
+          .flatMap((entry) =>
+            (entry.step?.toolResults ?? []).filter((result) => {
+              if (typeof result.toolCallId !== 'string') return false
+              return result.toolCallId === toolCallId
+            })
+          )[0]
+      : undefined
+
+    const toolResultText =
+      toolResult && typeof toolResult.result === 'string' ? toolResult.result : null
+
     const commandSummary = log.command
       ? truncate(log.command.replace(/\s+/g, ' ').trim(), 140)
       : ''
     const cwdSummary = log.cwd ? truncate(log.cwd, 80) : ''
-
-    const toolResult = allLogs
-      .filter((entry) => entry.type === 'step' && entry.step?.toolResults)
-      .flatMap((entry) =>
-        (entry.step?.toolResults ?? []).filter((result) => {
-          if (typeof result.toolCallId !== 'string') return false
-          return result.toolCallId === runId
-        })
-      )[0]
-
-    const toolResultText =
-      toolResult && typeof toolResult.result === 'string' ? toolResult.result : null
 
     return (
       <motion.div
@@ -454,27 +449,40 @@ export function LogItem({
               {commandSummary ? (
                 <span className="tool-call-summaryText">{commandSummary}</span>
               ) : null}
-              <span className="tool-pill">调用</span>
+              <span
+                className={`tool-pill ${
+                  statusPill.variant === 'ok'
+                    ? 'tool-pill--ok'
+                    : statusPill.variant === 'warn'
+                      ? 'tool-pill--warn'
+                      : ''
+                }`}
+              >
+                {statusPill.label}
+              </span>
             </summary>
+
             <div className="tool-call-body">
               <div className="tool-call-section">
                 <div className="tool-call-sectionHeader">
                   <span>参数</span>
                   <CopyButton
                     text={normalizeText({
+                      requestId: log.requestId,
+                      toolCallId: log.toolCallId,
                       command: log.command,
                       cwd: log.cwd,
                       timeout: log.timeout,
-                      preserveSandbox: log.preserveSandbox,
                     })}
                   />
                 </div>
                 <KeyValueTable
                   value={{
+                    requestId: log.requestId,
+                    toolCallId: log.toolCallId,
                     command: log.command,
                     cwd: log.cwd,
                     timeout: log.timeout,
-                    preserveSandbox: log.preserveSandbox,
                   }}
                 />
                 {cwdSummary ? (
@@ -511,9 +519,21 @@ export function LogItem({
     const allToolCalls = log.step.toolCalls ?? []
     const toolCount = allToolCalls.length
     const primaryTool = toolCount === 1 ? allToolCalls[0] : undefined
-    const visibleToolCalls = allToolCalls.filter(
-      (tool) => normalizeToolNameKey(tool.toolName ?? '') !== 'sandbox_exec'
+    const sandboxRequestToolCallIds = new Set(
+      allLogs
+        .filter(
+          (entry) =>
+            entry.type === 'sandbox_request' && typeof entry.toolCallId === 'string'
+        )
+        .map((entry) => entry.toolCallId as string)
     )
+    const visibleToolCalls = allToolCalls.filter((tool) => {
+      const normalizedToolName = normalizeToolNameKey(tool.toolName ?? '')
+      if (normalizedToolName !== 'sandbox_exec') return true
+      const toolCallId = tool.toolCallId
+      if (typeof toolCallId !== 'string' || !toolCallId.trim()) return true
+      return !sandboxRequestToolCallIds.has(toolCallId)
+    })
     const visibleToolCount = visibleToolCalls.length
 
     const stableSerialize = (value: unknown) => {
@@ -635,7 +655,7 @@ export function LogItem({
                       <details
                         key={toolKey}
                         className={`tool-call${isBugCard ? ' tool-call--bug' : ''}`}
-                        open={detailsOpenState[toolKey] ?? false}
+                        open={detailsOpenState[toolKey] ?? isBugCard}
                         onToggle={handleDetailsToggle(toolKey)}
                       >
                         <summary className="tool-call-summary">

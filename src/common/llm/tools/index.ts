@@ -65,7 +65,10 @@ export const getAllTools = async (
   }
 
   if (options.model && options.includeSubAgent && options.maxSteps) {
-    tools.spawn_subagent = createSubAgentTool(options.model, options.maxSteps)
+    tools.spawn_subagent = createSubAgentTool(options.model, options.maxSteps, {
+      sandboxConfirm: options.sandboxConfirm,
+      sandboxOnEvent: options.sandboxOnEvent,
+    })
   }
 
   if (options.mcpClientManager) {

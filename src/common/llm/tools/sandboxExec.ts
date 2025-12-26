@@ -34,6 +34,7 @@ export type SandboxExecApprovalRequest = {
   command: string
   cwd: string
   timeout: number
+  toolCallId?: string
 }
 
 export type SandboxExecApprovalResponse = {
@@ -384,6 +385,7 @@ export const createSandboxExecTool = (
         { type: 'sandbox_run_end' }
       >
       let endEmitted = false
+      let startEmitted = false
 
       const emit = (event: SandboxExecStreamEvent) => {
         if (!onEvent) return
@@ -394,6 +396,20 @@ export const createSandboxExecTool = (
         }
       }
 
+      const emitStart = () => {
+        if (startEmitted) return
+        startEmitted = true
+        emit({
+          type: 'sandbox_run_start',
+          runId,
+          toolCallId,
+          command,
+          cwd,
+          timeout,
+          preserveSandbox,
+        })
+      }
+
       const emitSystem = (text: string) => {
         emit({ type: 'sandbox_run_output', runId, toolCallId, stream: 'system', text })
       }
@@ -402,6 +418,7 @@ export const createSandboxExecTool = (
         event: Omit<SandboxRunEndEvent, 'type' | 'runId' | 'toolCallId' | 'durationMs'>
       ) => {
         if (endEmitted) return
+        emitStart()
         endEmitted = true
         emit({
           type: 'sandbox_run_end',
@@ -412,21 +429,43 @@ export const createSandboxExecTool = (
         })
       }
 
-      emit({
-        type: 'sandbox_run_start',
-        runId,
-        toolCallId,
-        command,
-        cwd,
-        timeout,
-        preserveSandbox,
-      })
-
       const cached = cachedRuns.get(cacheKey)
+
+      const dangerous = findDangerousCommand(command)
+      if (dangerous) {
+        emitStart()
+        emitSystem(`Blocked potentially dangerous command: ${dangerous}\n`)
+        emitEnd({
+          status: 'dangerous',
+          exitCode: null,
+          signal: null,
+        })
+        return `Error: Potentially dangerous command detected: ${dangerous}`
+      }
+
+      const approval = await confirmSandboxExec({ command, cwd, timeout, toolCallId })
+      if (!approval.approved) {
+        emitStart()
+        emitSystem(
+          `Sandbox execution denied. ${approval.reason ?? 'Approval required.'}\n`
+        )
+        emitEnd({
+          status: 'denied',
+          exitCode: null,
+          signal: null,
+        })
+        return [
+          `Sandbox execution denied. ${approval.reason ?? 'Approval required.'}`,
+          '',
+          'DO NOT retry the same command in a loop. Mark the finding as UNVERIFIED (reason: sandbox approval denied or timed out) and proceed.',
+        ].join('\n')
+      }
+
       if (cached) {
+        emitStart()
         cached.duplicateCount += 1
         emitSystem(
-          '[shippie] Reusing cached sandbox_exec output for identical command.\n'
+          '[shippie] Using cached sandbox_exec output (identical command, approved).\n'
         )
         emitSystem(`${cached.output}\n`)
         emitEnd({
@@ -443,35 +482,7 @@ export const createSandboxExecTool = (
         ].join('\n')
       }
 
-      const dangerous = findDangerousCommand(command)
-      if (dangerous) {
-        emitSystem(`Blocked potentially dangerous command: ${dangerous}\n`)
-        emitEnd({
-          status: 'dangerous',
-          exitCode: null,
-          signal: null,
-        })
-        return `Error: Potentially dangerous command detected: ${dangerous}`
-      }
-
-      emitSystem('Awaiting user approval...\n')
-      const approval = await confirmSandboxExec({ command, cwd, timeout })
-      if (!approval.approved) {
-        emitSystem(
-          `Sandbox execution denied. ${approval.reason ?? 'Approval required.'}\n`
-        )
-        emitEnd({
-          status: 'denied',
-          exitCode: null,
-          signal: null,
-        })
-        return [
-          `Sandbox execution denied. ${approval.reason ?? 'Approval required.'}`,
-          '',
-          'DO NOT retry the same command in a loop. Mark the finding as UNVERIFIED (reason: sandbox approval denied or timed out) and proceed.',
-        ].join('\n')
-      }
-
+      emitStart()
       let sandboxRoot = ''
       let sandboxCwd = ''
       let finalOutput = ''

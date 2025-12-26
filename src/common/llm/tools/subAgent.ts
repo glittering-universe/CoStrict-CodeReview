@@ -1,8 +1,21 @@
-import { type LanguageModelV1, generateText, tool } from 'ai'
+import type { LanguageModelV1, Tool } from 'ai'
+import { generateText, tool } from 'ai'
 import { z } from 'zod'
 import { logger } from '../../utils/logger'
 import { MCPClientManager } from '../mcp/client'
-import { getAllTools } from './index'
+import { bashTool } from './bash'
+import { fetchTool } from './fetch'
+import { globTool } from './glob'
+import { grepTool } from './grep'
+import { lsTool } from './ls'
+import { readFileTool } from './readFile'
+import { reportBugTool } from './reportBug'
+import {
+  type SandboxExecConfirm,
+  type SandboxExecOnEvent,
+  createSandboxExecTool,
+} from './sandboxExec'
+import { thinkingTool } from './thinking'
 
 const resolveMaxModelRetries = (): number => {
   const raw = process.env.SHIPPIE_LLM_CALL_MAX_RETRIES
@@ -31,7 +44,14 @@ const submitReportTool = tool({
   }),
 })
 
-export const createSubAgentTool = (parentModel: LanguageModelV1, maxSteps: number) => {
+export const createSubAgentTool = (
+  parentModel: LanguageModelV1,
+  maxSteps: number,
+  options: {
+    sandboxConfirm?: SandboxExecConfirm
+    sandboxOnEvent?: SandboxExecOnEvent
+  } = {}
+) => {
   return tool({
     description:
       'Spawn a sub-agent with a specific goal that runs autonomously with access to all available tools. The sub-agent will work towards the goal and return a structured report with findings and recommendations. Use this subagent to run token heavy tasks which can be run async from the main agent.',
@@ -51,15 +71,31 @@ export const createSubAgentTool = (parentModel: LanguageModelV1, maxSteps: numbe
         await mcpClientManager.loadConfig()
         await mcpClientManager.startClients()
 
-        const allTools = await getAllTools({
-          model,
-          mcpClientManager,
-        })
-
-        const tools = {
+        const tools: Record<string, Tool> = {
           submit_report: submitReportTool,
-          ...allTools,
+          read_file: readFileTool,
+          fetch: fetchTool,
+          glob: globTool,
+          grep: grepTool,
+          ls: lsTool,
+          bash: bashTool,
+          sandbox_exec: createSandboxExecTool(
+            options.sandboxConfirm,
+            options.sandboxOnEvent
+          ),
+          thinking: thinkingTool,
+          report_bug: reportBugTool,
         }
+
+        const mcpTools: Record<string, Tool> = {}
+        for (const [serverName, serverTools] of Object.entries(
+          await mcpClientManager.getTools()
+        )) {
+          for (const [toolName, mcpTool] of Object.entries(serverTools)) {
+            mcpTools[`${serverName}-${toolName}`] = mcpTool
+          }
+        }
+        Object.assign(tools, mcpTools)
 
         logger.debug('Sub-agent tools available:', Object.keys(tools))
 

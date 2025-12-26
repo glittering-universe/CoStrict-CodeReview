@@ -194,7 +194,9 @@ export const createTestTools = (
 
   // Add sub-agent if requested
   if (model && includeSubAgent) {
-    tools.spawn_subagent = createSubAgentTool(model, maxSteps)
+    tools.spawn_subagent = createSubAgentTool(model, maxSteps, {
+      sandboxConfirm: async () => ({ approved: true }),
+    })
   }
 
   return tools

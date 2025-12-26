@@ -22,6 +22,18 @@ interface ReviewSessionProps {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
+const normalizeToolNameKey = (rawName: string): string => {
+  const trimmed = rawName.trim()
+  if (!trimmed) return ''
+
+  return trimmed
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+}
+
 export function ReviewSession({
   activeSession,
   setView,
@@ -40,17 +52,46 @@ export function ReviewSession({
   const sessionId = activeSession?.id
   const timelineEntries = useMemo(() => {
     const logs = activeSession?.logs ?? []
+    const sandboxRequestToolCallIds = new Set(
+      logs
+        .filter(
+          (log) => log.type === 'sandbox_request' && typeof log.toolCallId === 'string'
+        )
+        .map((log) => log.toolCallId as string)
+    )
+
     return logs
       .map((log, index) => ({ log, index }))
-      .filter(
-        ({ log }) =>
+      .filter(({ log }) => {
+        if (
           log.type === 'status' ||
           log.type === 'files' ||
           log.type === 'sandbox_request' ||
-          log.type === 'sandbox_run_start' ||
-          log.type === 'step' ||
           log.type === 'error'
-      )
+        ) {
+          return true
+        }
+
+        if (log.type !== 'step' || !log.step) return false
+        const toolCalls = log.step.toolCalls ?? []
+        if (toolCalls.length === 0) return true
+
+        const normalizedToolNames = toolCalls.map((call) =>
+          normalizeToolNameKey(call.toolName ?? '')
+        )
+        const hasNonSandboxTool = normalizedToolNames.some(
+          (name) => name && name !== 'sandbox_exec'
+        )
+        if (hasNonSandboxTool) return true
+
+        const hasUnlinkedSandboxCall = toolCalls.some((call) => {
+          const toolCallId = call.toolCallId
+          if (typeof toolCallId !== 'string' || !toolCallId.trim()) return true
+          return !sandboxRequestToolCallIds.has(toolCallId)
+        })
+
+        return hasUnlinkedSandboxCall
+      })
   }, [activeSession?.logs])
 
   const initialQuality = useMemo<1 | 0.75 | 0.5>(() => {
@@ -251,7 +292,13 @@ export function ReviewSession({
 
           <div className="timeline-list">
             {timelineEntries.map(({ log, index }, visibleIndex) => {
-              const isExpanded = expandedSteps.has(index) || expandAll
+              const isBugStep =
+                log.type === 'step' &&
+                (log.step?.toolCalls ?? []).some(
+                  (call) => normalizeToolNameKey(call.toolName ?? '') === 'report_bug'
+                )
+
+              const isExpanded = expandedSteps.has(index) || expandAll || isBugStep
 
               return (
                 <LogItem

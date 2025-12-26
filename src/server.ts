@@ -469,16 +469,19 @@ app.post('/api/review', async (c) => {
         command,
         cwd,
         timeout,
+        toolCallId,
       }: {
         command: string
         cwd: string
         timeout: number
+        toolCallId?: string
       }): Promise<SandboxExecApprovalResponse> => {
         const requestId = crypto.randomUUID()
 
         const ok = await safeWriteSSE({
           type: 'sandbox_request',
           requestId,
+          toolCallId,
           command,
           cwd,
           timeout,
