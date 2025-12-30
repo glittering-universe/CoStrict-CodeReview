@@ -1,0 +1,52 @@
+name: CoStric Code Review CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+  actions: read
+
+jobs:
+  build_and_test:
+    runs-on: macos-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      GITHUB_SHA: ${{ github.sha }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun i
+
+      - name: Lint check
+        run: bun check
+
+      - name: Type check
+        run: bun check:types
+
+      - name: Build package
+        run: bun run build
+
+      - name: Run unit tests
+        run: bun test:unit
+
+      - name: Run CoStric review action
+        uses: ./
+
+      - name: Run CoStric review
+        run: bun review --platform=github --debug
+
+      - name: Run e2e tests (optional)
+        run: bun test:e2e

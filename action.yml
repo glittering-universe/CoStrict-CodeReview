@@ -1,0 +1,102 @@
+name: "Shippie 🚢"
+description: "an extensible code review agent"
+author: "Matt Carey"
+inputs:
+  MODEL_STRING:
+    description: "Model name to use for review"
+    required: false
+    default: "openai:gpt-4.1-mini"
+  REVIEW_LANGUAGE:
+    description: "Target natural language for translation"
+    required: false
+    default: "English"
+  OPENAI_API_KEY:
+    description: "OpenAI API Key"
+    required: false
+  GOOGLE_GENERATIVE_AI_API_KEY:
+    description: "Google API Key"
+    required: false
+  ANTHROPIC_API_KEY:
+    description: "Anthropic API Key"
+    required: false
+  GITHUB_TOKEN:
+    description: "Github token"
+    required: true
+  BASE_URL:
+    description: "AI Provider Base URL"
+    required: false
+  MAX_STEPS:
+    description: "Maximum number of agentic steps to take"
+    required: false
+    default: "50"
+  TELEMETRY:
+    description: "Enables anonymous telemetry"
+    required: false
+    default: "true"
+  IGNORE:
+    description: "Comma-separated list of glob patterns to ignore (e.g., '**/*.test.ts,dist/**,*.md'). If not provided, sensible defaults will be used."
+    required: false
+  DEBUG:
+    description: "Enables debug logging"
+    required: false
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        bun install shippie
+
+    - name: Run Shippie Review 🚢
+      shell: bash
+      run: |
+        cmd_args="shippie review --platform=github"
+
+        # Inputs with defaults in action.yml - these will always have a value.
+        cmd_args="$cmd_args --modelString=${{ inputs.MODEL_STRING }}"
+        cmd_args="$cmd_args --reviewLanguage=${{ inputs.REVIEW_LANGUAGE }}"
+        cmd_args="$cmd_args --maxSteps=${{ inputs.MAX_STEPS }}"
+
+        # Input with no default in action.yml - only add if user provides it and it's non-empty.
+        if [ -n "${{ inputs.BASE_URL }}" ]; then
+          cmd_args="$cmd_args --baseUrl="${{ inputs.BASE_URL }}""
+        fi
+
+        if [ -n "${{ inputs.IGNORE }}" ]; then
+          # Parse the IGNORE input as a space or comma-separated list and add multiple --ignore flags
+          IFS=',' read -ra IGNORE_ARRAY <<< "${{ inputs.IGNORE }}"
+          for pattern in "${IGNORE_ARRAY[@]}"; do
+            # Trim whitespace and add --ignore flag for each pattern
+            pattern=$(echo "$pattern" | xargs)
+            if [ -n "$pattern" ]; then
+              cmd_args="$cmd_args --ignore=\"$pattern\""
+            fi
+          done
+        fi
+
+        # Boolean flags:
+        if [ "${{ inputs.DEBUG }}" = "true" ]; then
+          cmd_args="$cmd_args --debug"
+        fi
+
+        if [ "${{ inputs.TELEMETRY }}" = "false" ]; then
+          cmd_args="$cmd_args --telemetry=false"
+        fi
+
+        echo "Executing: bun $cmd_args"
+        bun $cmd_args
+      env:
+        OPENAI_API_KEY: ${{ inputs.OPENAI_API_KEY || env.OPENAI_API_KEY }}
+        GOOGLE_GENERATIVE_AI_API_KEY: ${{ inputs.GOOGLE_GENERATIVE_AI_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ inputs.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY }}
+        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN || env.GITHUB_TOKEN }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        GITHUB_SHA: ${{ github.sha }}
+branding:
+  icon: "git-pull-request"
+  color: "red"

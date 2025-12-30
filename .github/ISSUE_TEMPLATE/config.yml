@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Start a Discussion
+    url: https://github.com/glittering-universe/CoStrict-CodeReview/discussions
+    about: Have questions, ideas, or want to chat? Start a discussion here.
+  - name: 📚 Documentation
+    url: https://github.com/glittering-universe/CoStrict-CodeReview#readme
+    about: Check the README for setup and usage information

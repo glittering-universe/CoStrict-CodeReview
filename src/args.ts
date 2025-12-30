@@ -1,0 +1,75 @@
+import yargs from 'yargs'
+import { hideBin } from 'yargs/helpers'
+
+import { loadDotenv } from './common/config/dotenv'
+
+loadDotenv()
+
+export const getYargs = async () => {
+  return yargs(hideBin(process.argv))
+    .command('configure', 'Configure the tool', (yargs) => {
+      return yargs.option('platform', {
+        description:
+          "Specifies for which platform ('github') the project should be configured for. Defaults to 'github'.",
+        choices: ['github'],
+        type: 'string',
+        default: 'github',
+      })
+    })
+    .command('review', 'Review code changes', (yargs) => {
+      return yargs
+        .option('modelString', {
+          description:
+            'The model to use for generating the review. Defaults to "openai:gpt-5.2".',
+          type: 'string',
+          default: 'openai:gpt-5.2',
+        })
+        .option('reviewLanguage', {
+          description: 'Specifies the target natural language for translation',
+          type: 'string',
+          default: 'English',
+        })
+        .option('platform', {
+          description: 'Platform type',
+          choices: ['github', 'local'],
+          type: 'string',
+          default: 'local',
+        })
+        .option('maxSteps', {
+          description: 'Maximum number of agentic steps to take',
+          type: 'number',
+          default: 50,
+        })
+        .option('baseUrl', {
+          description: 'Base URL for the AI provider (OpenAI compatible)',
+          type: 'string',
+        })
+        .option('apiKey', {
+          description:
+            'API key for the AI provider. Prefer using environment variables or a local credentials file.',
+          type: 'string',
+        })
+        .option('ignore', {
+          description:
+            "Array of globs which costrict ignores. If you don't provide any, sensible default will be used",
+          type: 'array',
+        })
+        .option('customInstructions', {
+          description: 'Custom instructions to be added to the review prompt',
+          type: 'string',
+        })
+    })
+    .demandCommand(1, 'Please specify a command: configure or review')
+    .option('debug', {
+      description: 'Enables debug logging.',
+      type: 'boolean',
+      default: false,
+    })
+    .option('telemetry', {
+      description: 'Enables anonymous telemetry.',
+      type: 'boolean',
+      default: true,
+    })
+    .help()
+    .parse()
+}

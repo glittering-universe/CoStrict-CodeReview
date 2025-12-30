@@ -1,0 +1,50 @@
+---
+description: CoStric repository guidelines and AI constraints.
+globs: '**/*'
+alwaysApply: true
+---
+# CoStric Repo
+
+CoStric is a lightweight developer tooling repository focused on automated code quality checks, reviews and safe agent workflows. The codebase is intended to be used as a CLI and library for integrating AI-assisted review automation into CI/CD.
+
+## Ethos
+- Practical, minimal automation that augments reviewers (not replaces them).
+- Predictable, auditable agent behaviour with clear human approval gates.
+- Fast developer feedback loop: local-first dev & tests, then CI validation.
+
+## Tech stack
+- TypeScript (strict) as the primary language
+- Bun for dependency management and running scripts
+- `tsup` for bundling and distribution
+- `biome` for formatting and linting
+- Small, focused libs used as-needed (examples below)
+
+Typical libraries seen in this repo
+- `yargs` for CLI args
+- `picocolors` for terminal colours
+- `tinyglobby` for file globs
+- `tslog` for structured logs
+
+## For the AI / Automation Agents
+These rules are authoritative guidance for any automated agent or contributor that modifies the repository programmatically. Agents must obey the following constraints unless an explicit human approval is provided in a PR or issue.
+
+- Do not install or upgrade packages without explicit human approval. Prefer suggesting dependency changes in a PR description instead.
+- Do not delete or move files outside of a documented migration plan approved by maintainers.
+- Always add or update unit tests for behavior changes. Run unit tests locally with `bun test:unit` before proposing changes.
+- Keep changes small and focused; each PR should serve a single purpose.
+- When making code changes, ensure `biome` formatting and lint rules are respected. Run `bun run check` and `bun run check:types` locally.
+- Never commit secrets or credentials. If the agent detects potential secrets, open an issue and do not commit the secret content.
+
+## Running tests and checks
+Run these locally before opening a PR:
+
+```bash
+bun i
+bun run check
+bun run check:types
+bun test:unit
+```
+
+## Notes for maintainers
+- `globs` here are permissive by default; narrow them if you want the rule to apply only to subfolders.
+- Keep this file updated when repository conventions change (scripts, CI commands, or required checks).
