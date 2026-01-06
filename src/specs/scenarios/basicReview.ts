@@ -31,7 +31,7 @@ async function fetchUserData() {
       ],
     },
     expectations: {
-      shouldCallTools: ['suggest_change', 'submit_summary'],
+      shouldCallTools: ['plan', 'suggest_change', 'submit_summary'],
       shouldNotCallTools: ['spawn_subagent'],
       toolCallValidation: [
         {
@@ -56,7 +56,7 @@ async function fetchUserData() {
         },
       ],
       minimumToolCalls: 2,
-      maximumToolCalls: 4,
+      maximumToolCalls: 20,
     },
   },
   {
@@ -92,7 +92,7 @@ function processUsers(users: any[]): void {
       ],
     },
     expectations: {
-      shouldCallTools: ['suggest_change', 'submit_summary'],
+      shouldCallTools: ['plan', 'suggest_change', 'submit_summary'],
       shouldNotCallTools: ['spawn_subagent'],
       summaryContains: ['type', 'interface'],
       minimumToolCalls: 2,
@@ -136,7 +136,7 @@ export function searchArray(arr: string[], target: string): boolean {
       ],
     },
     expectations: {
-      shouldCallTools: ['submit_summary'],
+      shouldCallTools: ['plan', 'submit_summary'],
       shouldNotCallTools: ['spawn_subagent'],
       minimumToolCalls: 1,
     },

@@ -78,6 +78,24 @@ export const createTestGlobTool = (config: TestToolConfig) =>
     },
   })
 
+export const createTestPlanTool = () =>
+  tool({
+    description: 'Update the plan file (test stub).',
+    parameters: z.object({
+      steps: z.array(
+        z.object({
+          step: z.string().describe('Plan step description'),
+          status: z.enum(['pending', 'in_progress', 'completed', 'blocked']),
+        })
+      ),
+      logEntry: z.string().optional(),
+      note: z.string().optional(),
+    }),
+    execute: async ({ steps }) => {
+      return `Plan updated with ${steps.length} step(s) (test stub).`
+    },
+  })
+
 export const createTestToolsConfig = (scenarioData: {
   files: Array<{ fileName: string; content: string; diff?: string }>
 }): TestToolConfig => {
@@ -187,6 +205,7 @@ export const createTestTools = (
   tools.grep = createTestGrepTool(config)
   tools.ls = createTestLsTool(config)
   tools.glob = createTestGlobTool(config)
+  tools.plan = createTestPlanTool()
 
   // Add platform-dependent tools
   tools.suggest_change = createSuggestChangesTool(platformProvider)

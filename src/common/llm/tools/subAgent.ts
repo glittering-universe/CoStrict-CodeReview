@@ -8,6 +8,7 @@ import { fetchTool } from './fetch'
 import { globTool } from './glob'
 import { grepTool } from './grep'
 import { lsTool } from './ls'
+import { planTool } from './plan'
 import { readFileTool } from './readFile'
 import { reportBugTool } from './reportBug'
 import {
@@ -78,6 +79,7 @@ export const createSubAgentTool = (
           glob: globTool,
           grep: grepTool,
           ls: lsTool,
+          plan: planTool,
           bash: bashTool,
           sandbox_exec: createSandboxExecTool(
             options.sandboxConfirm,

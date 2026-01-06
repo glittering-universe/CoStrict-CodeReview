@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
-import { generateText } from 'ai'
+import { generateText, tool, type Tool } from 'ai'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
@@ -221,6 +221,46 @@ const containsBugKeywords = (text: string): boolean => {
   )
 }
 
+const hasPlanningArtifacts = (text: string): boolean =>
+  /总体规划|执行记录|计划调整|完成条件|\bDoD\b|^\s*P\d+\s*[:：]/im.test(text)
+
+const isPlanningLine = (line: string): boolean => {
+  const trimmed = line.trim()
+  if (!trimmed) return false
+
+  if (
+    /总体规划|执行记录|计划调整|完成条件|\bDoD\b|收集项目上下文|变更文件|变更块|影响评估|验证策略|问题记录策略/i.test(
+      trimmed
+    )
+  ) {
+    return true
+  }
+
+  if (/^\s*P\d+\s*[:：]/i.test(trimmed) || /^\s*DoD\d+/i.test(trimmed)) {
+    return true
+  }
+
+  if (
+    /\b(read_diff|read_file|ls|grep|glob|sandbox_exec|submit_summary|report_bug|suggest_change)\b/i.test(
+      trimmed
+    )
+  ) {
+    return true
+  }
+
+  return /^(分析|评估|检查|验证|使用|读取|运行|查看|确定|确认)\b/.test(trimmed)
+}
+
+const stripPlanningContent = (text: string): string => {
+  if (!hasPlanningArtifacts(text)) return text
+  const filtered = text
+    .split(/\r?\n/)
+    .filter((line) => !isPlanningLine(line))
+    .join('\n')
+    .trim()
+  return filtered
+}
+
 const extractBugCandidates = (text: string): string[] => {
   const candidates = new Set<string>()
   const lines = text.split(/\r?\n/)
@@ -257,6 +297,24 @@ const extractBugCandidates = (text: string): string[] => {
     .split(/[,，、]/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+const createSingleUseSandboxExecTool = (baseTool: Tool): Tool => {
+  let used = false
+  return tool({
+    description: `${baseTool.description ?? 'Execute a bash command in a sandbox.'} (single use per bug)`,
+    parameters: baseTool.parameters,
+    execute: async (args, options) => {
+      if (used) {
+        return 'Duplicate sandbox_exec prevented: only one sandbox_exec run is allowed for this bug.'
+      }
+      used = true
+      if (!baseTool.execute) {
+        return 'sandbox_exec unavailable for this run.'
+      }
+      return baseTool.execute(args as never, options)
+    },
+  })
 }
 
 const inferSeverity = (text: string): 'low' | 'medium' | 'high' | 'critical' => {
@@ -526,7 +584,12 @@ app.post('/api/review', async (c) => {
         reportText: string,
         alreadySawReportBug: boolean
       ) => {
-        if (alreadySawReportBug || !reportText || !containsBugKeywords(reportText)) {
+        const sanitizedReportText = stripPlanningContent(reportText)
+        if (
+          alreadySawReportBug ||
+          !sanitizedReportText ||
+          !containsBugKeywords(sanitizedReportText)
+        ) {
           return
         }
 
@@ -568,33 +631,39 @@ app.post('/api/review', async (c) => {
           }
         }
 
-        const candidates = extractBugCandidates(reportText).slice(0, 10)
+        const candidates = extractBugCandidates(sanitizedReportText).slice(0, 10)
 
         const verifyAndReportSingleBug = async (candidate: string) => {
           const bugPrompt = `You previously completed a PR review.
 
 Task (MANDATORY):
 - You are handling ONE bug candidate (below).
-- You MUST attempt to verify it via sandbox_exec (requires user approval).
+- You MUST attempt to verify it via sandbox_exec.
+- The system handles user approval automatically when you call the tool. Do NOT ask for confirmation in text. Just call the tool.
 - Run EXACTLY ONE sandbox_exec command for this bug. Do NOT loop or retry the same command.
 - After sandbox_exec (or if denied / infeasible), call report_bug EXACTLY ONCE for this bug.
 - Set status VERIFIED only if sandbox output demonstrates the bug; otherwise UNVERIFIED with the reason.
 - Do NOT call submit_summary.
 - Do NOT output long narrative text. Prefer tool calls only.
 - Even if multiple bugs could share the same command, DO NOT reuse one sandbox_exec run for multiple bug cards. This bug needs its own sandbox_exec attempt and its own report_bug card.
+- Ignore any planning/checklist content in the context summary.
+- Use sandbox_exec ONLY for a minimal reproduction or verification command (do not use it for ls/cat/git diff or context gathering).
 
 Bug candidate:
 ${candidate}
 
 Context summary:
-${reportText}
+${sanitizedReportText}
 `
 
           await reviewAgent(
             bugPrompt,
             model,
             Math.min(maxSteps, 6),
-            { sandbox_exec: tools.sandbox_exec, report_bug: tools.report_bug },
+            {
+              sandbox_exec: createSingleUseSandboxExecTool(tools.sandbox_exec),
+              report_bug: tools.report_bug,
+            },
             undefined,
             streamBugStep
           )
@@ -619,9 +688,11 @@ Task (MANDATORY):
 - For EACH bug: attempt ONE sandbox_exec verification, then call report_bug EXACTLY ONCE.
 - Do NOT call submit_summary.
 - Do NOT output long narrative text. Prefer tool calls only.
+- Ignore any planning/checklist content in the summary.
+- Use sandbox_exec only for minimal verification commands; do not use it for ls/cat/git diff or context gathering.
 
 Summary to extract from:
-${reportText}
+${sanitizedReportText}
 `
 
             await reviewAgent(
