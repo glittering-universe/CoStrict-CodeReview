@@ -64,6 +64,11 @@ function App() {
           typeof parsed.environment === 'string'
             ? parsed.environment
             : defaults.environment,
+        scanRoots: typeof parsed.scanRoots === 'string' ? parsed.scanRoots : undefined,
+        maxDepth: typeof parsed.maxDepth === 'number' ? parsed.maxDepth : undefined,
+        maxRepos: typeof parsed.maxRepos === 'number' ? parsed.maxRepos : undefined,
+        ignoredNames:
+          typeof parsed.ignoredNames === 'string' ? parsed.ignoredNames : undefined,
       }
     } catch {
       return defaults
@@ -185,6 +190,10 @@ function App() {
           apiKey: config.apiKey || undefined,
           baseUrl: config.baseUrl || undefined,
           environment: config.environment,
+          scanRoots: config.scanRoots,
+          maxDepth: config.maxDepth,
+          maxRepos: config.maxRepos,
+          ignoredNames: config.ignoredNames,
         }),
       })
 

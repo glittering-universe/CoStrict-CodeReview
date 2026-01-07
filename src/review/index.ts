@@ -1,6 +1,10 @@
+import { chdir } from 'node:process'
+import { select } from '@inquirer/prompts'
 import { Telemetry } from '../common/api/telemetry'
 import { resolveLlmCredentials } from '../common/config/llmCredentials'
+import { getGitRoot } from '../common/git/getChangedFilesNames'
 import { getFilesWithChanges } from '../common/git/getFilesWithChanges'
+import { scanGitRepositories } from '../common/git/scanGitRepos'
 import { type ModelCreationOptions, createModel } from '../common/llm/models'
 import { getPlatformProvider } from '../common/platform/factory'
 import type { ReviewArgs, ReviewFile } from '../common/types'
@@ -46,6 +50,30 @@ export const review = async (yargs: ReviewArgs): Promise<void> => {
     )
     const telemetry = new Telemetry(yargs, platformProvider)
     telemetry.startReview()
+  }
+
+  try {
+    await getGitRoot()
+  } catch (error) {
+    logger.info('Current directory is not a git repository. Scanning for repositories...')
+    const repos = await scanGitRepositories()
+
+    if (repos.length === 0) {
+      logger.error('No git repositories found.')
+      process.exit(1)
+    }
+
+    const selectedPath = await select({
+      message: 'Select a repository to review:',
+      choices: repos.map((repo) => ({
+        name: repo.name,
+        value: repo.path,
+        description: repo.path,
+      })),
+    })
+
+    chdir(selectedPath)
+    logger.info(`Switched to repository: ${selectedPath}`)
   }
 
   const files: ReviewFile[] = await getFilesWithChanges(yargs.platform)

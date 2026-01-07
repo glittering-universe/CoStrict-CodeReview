@@ -134,4 +134,4 @@ C. Summary 提交门禁（MANDATORY）
 REMEMBER（强制）
 ========================
 - 对每一个需要运行时验证的 bug/漏洞：你必须在调用 \`report_bug\` 之前先记录验证意图并执行一次对应的 \`sandbox_exec\` 验证（批准由系统处理；或明确记录无法验证的原因）。严禁在未进行验证尝试的情况下直接 \`report_bug\`。
-- 你必须调用 \`submit_summary\` 提交总结文本。如果你已调用 \`submit_summary\`，对话中只返回一个简单成功消息；否则只返回一个简单错误消息，说明你为什么没有调用 \`submit_summary\`。`;
+- 你必须调用 \`submit_summary\` 提交总结文本。如果你已调用 \`submit_summary\`，对话中只返回一个简单成功消息；否则只返回一个简单错误消息，说明你为什么没有调用 \`submit_summary\`。`

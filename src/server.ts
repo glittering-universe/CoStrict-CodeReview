@@ -1,13 +1,16 @@
 import crypto from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
-import { generateText, tool, type Tool } from 'ai'
+import { chdir } from 'node:process'
+import { type Tool, generateText, tool } from 'ai'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
 import { loadDotenv } from './common/config/dotenv'
 import { loadLlmCredentials, resolveLlmCredentials } from './common/config/llmCredentials'
+import { getGitRoot } from './common/git/getChangedFilesNames'
 import { getFilesWithChanges } from './common/git/getFilesWithChanges'
+import { scanGitRepositories } from './common/git/scanGitRepos'
 import { MCPClientManager } from './common/llm/mcp/client'
 import { createModel } from './common/llm/models'
 import { stripProviderJsonFromText } from './common/llm/stripProviderJson'
@@ -392,10 +395,7 @@ const formatSubAgentContext = (reports: SubAgentReport[]): string => {
   return `\n\nSub-agent reports (pre-run):\n${blocks.join('\n\n')}\n`
 }
 
-const createCachedSubAgentTool = (
-  baseTool: Tool,
-  cache: Map<string, string>
-): Tool =>
+const createCachedSubAgentTool = (baseTool: Tool, cache: Map<string, string>): Tool =>
   tool({
     description: `${baseTool.description ?? 'Spawn a sub-agent.'} (cached)`,
     parameters: baseTool.parameters,
@@ -440,9 +440,7 @@ const runSubAgentPreflight = async ({
   fileContext: string
   safeWriteSSE: (payload: unknown) => Promise<boolean>
 }): Promise<SubAgentReport[]> => {
-  const fileNote = fileContext.trim()
-    ? ` Focus on changed files: ${fileContext}.`
-    : ''
+  const fileNote = fileContext.trim() ? ` Focus on changed files: ${fileContext}.` : ''
   const goalLines = subAgentGoals
     .map((item, index) => `${index + 1}) ${item.goal}${fileNote}`)
     .join('\n')
@@ -623,6 +621,10 @@ app.post('/api/review', async (c) => {
     reviewLanguage = 'English',
     apiKey,
     baseUrl,
+    scanRoots,
+    maxDepth,
+    maxRepos,
+    ignoredNames,
   } = body
 
   const credentials = await resolveLlmCredentials()
@@ -681,6 +683,60 @@ app.post('/api/review', async (c) => {
       startHeartbeat()
 
       await safeWriteSSE({ type: 'status', message: 'Initializing review...' })
+
+      // Repository Selection Logic
+      let needsScan = false
+      if (typeof scanRoots === 'string' && scanRoots.trim().length > 0) {
+        needsScan = true
+      } else {
+        try {
+          await getGitRoot()
+        } catch {
+          needsScan = true
+        }
+      }
+
+      if (needsScan) {
+        await safeWriteSSE({ type: 'status', message: 'Scanning for repositories...' })
+        const opts = {
+          roots:
+            typeof scanRoots === 'string'
+              ? scanRoots.split(',').map((s) => s.trim())
+              : undefined,
+          maxDepth: typeof maxDepth === 'number' ? maxDepth : undefined,
+          maxRepos: typeof maxRepos === 'number' ? maxRepos : undefined,
+          ignoredNames:
+            typeof ignoredNames === 'string'
+              ? ignoredNames.split(',').map((s) => s.trim())
+              : undefined,
+        }
+
+        const repos = await scanGitRepositories(opts)
+
+        if (repos.length === 0) {
+          await safeWriteSSE({
+            type: 'error',
+            message: 'No git repositories found via scanning.',
+          })
+          return
+        }
+
+        // Pick first
+        const selected = repos[0]
+        try {
+          chdir(selected.path)
+          await safeWriteSSE({
+            type: 'status',
+            message: `Switched to repository: ${selected.name}`,
+          })
+        } catch (err) {
+          await safeWriteSSE({
+            type: 'error',
+            message: `Failed to switch to ${selected.path}`,
+          })
+          return
+        }
+      }
 
       // 1. Get Files
       logger.debug('Getting platform provider...')
@@ -797,8 +853,7 @@ app.post('/api/review', async (c) => {
           } else {
             await safeWriteSSE({
               type: 'status',
-              message:
-                'Sub-agent preflight did not return reports. Continuing review...',
+              message: 'Sub-agent preflight did not return reports. Continuing review...',
             })
           }
         } catch (error) {

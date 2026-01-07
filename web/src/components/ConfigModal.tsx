@@ -7,6 +7,10 @@ export interface ConfigSettings {
   apiKey: string
   environment: string
   baseUrl: string
+  scanRoots?: string
+  maxDepth?: number
+  maxRepos?: number
+  ignoredNames?: string
 }
 
 type EffectiveLlmConfig = {
@@ -81,7 +85,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     return () => window.removeEventListener('keydown', handler)
   }, [isOpen, onClose])
 
-  const handleChange = (key: string, value: string) => {
+  const handleChange = (key: keyof ConfigSettings, value: string | number | undefined) => {
     const newConfig = { ...localConfig, [key]: value }
     setLocalConfig(newConfig)
     onSave(newConfig)
@@ -117,6 +121,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const navItems = [
     { id: 'general', label: '常规设置', icon: 'lucide:settings' },
     { id: 'api', label: 'API 配置', icon: 'lucide:key' },
+    { id: 'repo', label: '仓库扫描', icon: 'lucide:folder-search' },
     { id: 'environment', label: '环境', icon: 'lucide:globe' },
     { id: 'advanced', label: '高级设置', icon: 'lucide:terminal' },
   ]
@@ -295,6 +300,104 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                             ? normalizeBaseUrl(effective.baseUrl)
                             : 'https://api.openai.com/v1'
                         }
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'repo' && (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-info">
+                      <label className="settings-label" htmlFor="settings-scanRoots">
+                        扫描根目录
+                      </label>
+                      <p className="settings-description">
+                        指定要扫描代码仓库的根目录，多个路径用英文逗号分隔。
+                        <br />
+                        <span className="text-xs text-muted">留空则扫描默认路径或当前目录。</span>
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <input
+                        id="settings-scanRoots"
+                        type="text"
+                        value={localConfig.scanRoots || ''}
+                        onChange={(e) => handleChange('scanRoots', e.target.value)}
+                        className="settings-input"
+                        placeholder="/Users/username/projects"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-info">
+                      <label className="settings-label" htmlFor="settings-maxDepth">
+                        最大扫描深度
+                      </label>
+                      <p className="settings-description">
+                        扫描目录的最大层级深度。默认 6。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <input
+                        id="settings-maxDepth"
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={localConfig.maxDepth || ''}
+                        onChange={(e) =>
+                          handleChange('maxDepth', parseInt(e.target.value) || undefined)
+                        }
+                        className="settings-input"
+                        placeholder="6"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-info">
+                      <label className="settings-label" htmlFor="settings-maxRepos">
+                        最大仓库数量
+                      </label>
+                      <p className="settings-description">
+                        扫描到的最大仓库数量限制。默认 250。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <input
+                        id="settings-maxRepos"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={localConfig.maxRepos || ''}
+                        onChange={(e) =>
+                          handleChange('maxRepos', parseInt(e.target.value) || undefined)
+                        }
+                        className="settings-input"
+                        placeholder="250"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-info">
+                      <label className="settings-label" htmlFor="settings-ignoredNames">
+                        忽略目录
+                      </label>
+                      <p className="settings-description">
+                        扫描时要排除的目录名称，多个用逗号分隔。
+                      </p>
+                    </div>
+                    <div className="settings-control">
+                      <input
+                        id="settings-ignoredNames"
+                        type="text"
+                        value={localConfig.ignoredNames || ''}
+                        onChange={(e) => handleChange('ignoredNames', e.target.value)}
+                        className="settings-input"
+                        placeholder="node_modules, target"
                       />
                     </div>
                   </div>

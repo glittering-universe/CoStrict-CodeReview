@@ -59,7 +59,9 @@ export const createReadDiffTool = (platformProvider: PlatformProvider) =>
             const driveLetter = wslPathMatch[1].toUpperCase()
             const restPath = wslPathMatch[2].replace(/\//g, '\\')
             normalizedPath = `${driveLetter}:\\${restPath}`
-            logger.debug(`Converted WSL path to Windows path: ${path} -> ${normalizedPath}`)
+            logger.debug(
+              `Converted WSL path to Windows path: ${path} -> ${normalizedPath}`
+            )
           }
         }
 
@@ -80,31 +82,37 @@ export const createReadDiffTool = (platformProvider: PlatformProvider) =>
 
         return await new Promise<string>((resolve, reject) => {
           // Use exec like other git commands in the codebase
-          exec(diffCommand, { cwd: gitRoot, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-            // Git diff can exit with code 1 when there are differences; treat that as success
-            if (error && error.code !== 0 && error.code !== 1) {
-              // Log full details for debugging instead of rejecting, to avoid silent stops
-              logger.error(`Git diff error: ${error.message}`)
-              if (stderr) logger.error(`Git diff stderr: ${stderr}`)
+          exec(
+            diffCommand,
+            { cwd: gitRoot, maxBuffer: 1024 * 1024 * 10 },
+            (error, stdout, stderr) => {
+              // Git diff can exit with code 1 when there are differences; treat that as success
+              if (error && error.code !== 0 && error.code !== 1) {
+                // Log full details for debugging instead of rejecting, to avoid silent stops
+                logger.error(`Git diff error: ${error.message}`)
+                if (stderr) logger.error(`Git diff stderr: ${stderr}`)
 
-              // Resolve with a helpful message rather than rejecting so calling tools
-              // (LLM tool wrappers) don't silently terminate the session.
-              return resolve(`Error running git diff: ${error.message}${stderr ? `; stderr: ${stderr}` : ''}`)
-            }
+                // Resolve with a helpful message rather than rejecting so calling tools
+                // (LLM tool wrappers) don't silently terminate the session.
+                return resolve(
+                  `Error running git diff: ${error.message}${stderr ? `; stderr: ${stderr}` : ''}`
+                )
+              }
 
-            if (stderr) {
-              logger.warn(`Git diff stderr: ${stderr}`)
-            }
+              if (stderr) {
+                logger.warn(`Git diff stderr: ${stderr}`)
+              }
 
-            const diff = stdout || 'No changes detected'
-            const { truncated, text } = truncateWithHeadTail(diff, maxDiffChars)
-            if (truncated) {
-              logger.warn(
-                `Diff output for ${path} was truncated to ${maxDiffChars} chars to avoid context overflow.`
-              )
+              const diff = stdout || 'No changes detected'
+              const { truncated, text } = truncateWithHeadTail(diff, maxDiffChars)
+              if (truncated) {
+                logger.warn(
+                  `Diff output for ${path} was truncated to ${maxDiffChars} chars to avoid context overflow.`
+                )
+              }
+              resolve(text)
             }
-            resolve(text)
-          })
+          )
         })
       } catch (error) {
         logger.error(`Failed to generate diff: ${error}`)

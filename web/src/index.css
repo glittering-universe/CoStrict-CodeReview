@@ -612,8 +612,8 @@ h1.hero-title {
   color: var(--text-primary);
   backdrop-filter: blur(14px);
   cursor: pointer;
-  transition: transform 0.3s var(--ease-pop), border-color 0.3s var(--ease-pop),
-    color 0.3s var(--ease-pop);
+  transition: transform 0.3s var(--ease-pop), border-color 0.3s var(--ease-pop), color
+    0.3s var(--ease-pop);
 }
 
 .close-btn:hover {
@@ -1063,8 +1063,8 @@ h1.hero-title {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.25s var(--ease-pop), background 0.25s var(--ease-pop),
-    transform 0.25s var(--ease-pop);
+  transition: color 0.25s var(--ease-pop), background 0.25s var(--ease-pop), transform
+    0.25s var(--ease-pop);
 }
 
 .progress-step-toggle:hover {

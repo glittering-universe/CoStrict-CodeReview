@@ -50,7 +50,13 @@ const renderPlan = (
   log: string | null,
   note: string | null
 ): string => {
-  const lines: string[] = ['# Plan', '', `Updated: ${new Date().toISOString()}`, '', '## Steps']
+  const lines: string[] = [
+    '# Plan',
+    '',
+    `Updated: ${new Date().toISOString()}`,
+    '',
+    '## Steps',
+  ]
 
   if (steps.length === 0) {
     lines.push('- [pending] <no steps provided>')
