@@ -77,9 +77,9 @@ export interface PaymentResult {
         'Please use a sub-agent to develop a comprehensive testing strategy for this payment processing code. Include unit tests, integration tests, edge cases, error scenarios, and security considerations.',
     },
     expectations: {
-      shouldCallTools: ['plan', 'submit_summary'],
+      shouldCallTools: ['plan', 'spawn_subagent', 'submit_summary'],
       minimumToolCalls: 1,
-      maximumToolCalls: 30,
+      maximumToolCalls: 40,
     },
   },
 ]

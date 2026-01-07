@@ -30,7 +30,9 @@ export function Layout({
           <motion.button
             initial={{ opacity: 0.08, y: -10, filter: 'blur(10px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 22, mass: 0.7 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={openRunningSession}
             className="app-headerPill"
             type="button"

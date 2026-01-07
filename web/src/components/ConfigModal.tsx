@@ -136,9 +136,10 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
           }}
         >
           <motion.div
-            initial={{ opacity: 0.14, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0.14, scale: 0.95 }}
+            initial={{ opacity: 0.12, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0.12, scale: 0.96, y: 12 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 22, mass: 0.8 }}
             className="settings-modal"
             onClick={(e) => e.stopPropagation()}
           >

@@ -15,6 +15,7 @@
   --card-border: rgba(var(--accent-rgb), 0.22);
   --success: #10b981;
   --error: #f56565;
+  --ease-pop: cubic-bezier(0.16, 1, 0.3, 1);
   --radius: 0.75rem;
   /* 圆角，更柔和、更高级的感觉 */
   --radius-sm: 0.5rem;
@@ -99,7 +100,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.32s var(--ease-pop);
   border: 1px solid var(--accent);
   gap: 0.5rem;
   font-size: 0.875rem;
@@ -521,7 +522,7 @@ h1.hero-title {
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   padding: 0.875rem 1rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.32s var(--ease-pop);
 }
 
 .step-card:hover {
@@ -534,7 +535,7 @@ h1.hero-title {
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   padding: 0.875rem 1rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.32s var(--ease-pop);
   cursor: pointer;
 }
 
@@ -571,7 +572,7 @@ h1.hero-title {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.32s var(--ease-pop);
 }
 
 .ghost-btn:hover {
@@ -611,7 +612,8 @@ h1.hero-title {
   color: var(--text-primary);
   backdrop-filter: blur(14px);
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: transform 0.3s var(--ease-pop), border-color 0.3s var(--ease-pop),
+    color 0.3s var(--ease-pop);
 }
 
 .close-btn:hover {
@@ -634,6 +636,8 @@ h1.hero-title {
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(18px);
+  transition: transform 0.3s var(--ease-pop), border-color 0.3s var(--ease-pop),
+    box-shadow 0.3s var(--ease-pop);
 }
 
 .overview-card::after {
@@ -648,6 +652,12 @@ h1.hero-title {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+}
+
+.overview-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--accent-rgb), 0.32);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
 }
 
 .overview-label {
@@ -700,6 +710,14 @@ h1.hero-title {
   border-radius: var(--radius-lg);
   padding: 1.75rem;
   backdrop-filter: blur(18px);
+  transition: transform 0.3s var(--ease-pop), border-color 0.3s var(--ease-pop),
+    box-shadow 0.3s var(--ease-pop);
+}
+
+.timeline-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--accent-rgb), 0.32);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.35);
 }
 
 .timeline-card-header {
@@ -984,13 +1002,15 @@ h1.hero-title {
   border: 1px solid rgba(var(--accent-rgb), 0.16);
   background: rgba(0, 0, 0, 0.28);
   position: relative;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.25s var(--ease-pop), transform 0.25s var(--ease-pop),
+    box-shadow 0.25s var(--ease-pop);
   backdrop-filter: blur(16px);
 }
 
 .progress-step-row:hover {
   border-color: rgba(var(--accent-rgb), 0.22);
   transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
 }
 
 .progress-step-number {
@@ -1043,7 +1063,8 @@ h1.hero-title {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  transition: color 0.25s var(--ease-pop), background 0.25s var(--ease-pop),
+    transform 0.25s var(--ease-pop);
 }
 
 .progress-step-toggle:hover {
@@ -1961,13 +1982,15 @@ h1.hero-title {
   flex-direction: column;
   gap: 0.85rem;
   color: var(--text-secondary);
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  transition: transform 0.25s var(--ease-pop), border-color 0.25s var(--ease-pop),
+    background 0.25s var(--ease-pop), box-shadow 0.25s var(--ease-pop);
 }
 
 .history-item:hover {
   transform: translateY(-2px);
   border-color: rgba(var(--accent-rgb), 0.28);
   background: rgba(0, 0, 0, 0.28);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
 }
 
 .history-item--active {

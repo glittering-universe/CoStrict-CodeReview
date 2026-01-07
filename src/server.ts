@@ -222,14 +222,16 @@ const containsBugKeywords = (text: string): boolean => {
 }
 
 const hasPlanningArtifacts = (text: string): boolean =>
-  /总体规划|执行记录|计划调整|完成条件|\bDoD\b|^\s*P\d+\s*[:：]/im.test(text)
+  /总体规划|执行记录|计划调整|完成条件|\bDoD\b|^\s*P\d+\s*[:：]|\bsandbox_exec\b|approval|批准|等待|verification/im.test(
+    text
+  )
 
 const isPlanningLine = (line: string): boolean => {
   const trimmed = line.trim()
   if (!trimmed) return false
 
   if (
-    /总体规划|执行记录|计划调整|完成条件|\bDoD\b|收集项目上下文|变更文件|变更块|影响评估|验证策略|问题记录策略/i.test(
+    /总体规划|执行记录|计划调整|完成条件|\bDoD\b|收集项目上下文|变更文件|变更块|影响评估|验证策略|问题记录策略|sandbox_exec|approval|批准|等待|verification|verify/i.test(
       trimmed
     )
   ) {
@@ -248,7 +250,9 @@ const isPlanningLine = (line: string): boolean => {
     return true
   }
 
-  return /^(分析|评估|检查|验证|使用|读取|运行|查看|确定|确认)\b/.test(trimmed)
+  return /^(分析|评估|检查|验证|使用|读取|运行|查看|确定|确认|等待|请求|需要)\b/.test(
+    trimmed
+  )
 }
 
 const stripPlanningContent = (text: string): string => {
@@ -259,6 +263,43 @@ const stripPlanningContent = (text: string): string => {
     .join('\n')
     .trim()
   return filtered
+}
+
+const isMetaSummary = (text: string): boolean => {
+  const lowered = text.toLowerCase()
+  if (!lowered.trim()) return true
+  if (lowered.length < 120) {
+    if (
+      lowered.includes('approval') ||
+      lowered.includes('sandbox_exec') ||
+      lowered.includes('verification') ||
+      lowered.includes('verify') ||
+      lowered.includes('wait for') ||
+      lowered.includes('awaiting')
+    ) {
+      return true
+    }
+  }
+  return /等待.*批准|请求.*批准|需要.*批准|等待.*确认/.test(text)
+}
+
+const looksLikeBugNarrative = (text: string): boolean => {
+  const lowered = text.toLowerCase()
+  if (/`[^`]+`/.test(text)) return true
+  if (/\b(line|lines|stack|trace|exception|crash|panic)\b/.test(lowered)) {
+    return true
+  }
+  if (/\.(ts|tsx|js|jsx|py|rb|go|rs|java|cs|cpp|c)\b/.test(lowered)) {
+    return true
+  }
+  if (
+    /undefined|null|division by zero|divide by zero|overflow|deadlock|leak|timeout/.test(
+      lowered
+    )
+  ) {
+    return true
+  }
+  return /(?:返回|导致|出现|无法|错误|异常|崩溃|缺陷|漏洞)/.test(text)
 }
 
 const extractBugCandidates = (text: string): string[] => {
@@ -315,6 +356,161 @@ const createSingleUseSandboxExecTool = (baseTool: Tool): Tool => {
       return baseTool.execute(args as never, options)
     },
   })
+}
+
+type SubAgentReport = {
+  goal: string
+  report: string
+}
+
+const subAgentGoals = [
+  {
+    goal: '[Static Analysis Agent] Scan changed code for syntax, type, and style risks.',
+  },
+  {
+    goal: '[Logic Analysis Agent] Check control flow, edge cases, and logical correctness.',
+  },
+  {
+    goal: '[Memory & Performance Agent] Review for performance hot spots and resource usage risks.',
+  },
+  {
+    goal: '[Security Analysis Agent] Look for security risks, threat vectors, and unsafe patterns.',
+  },
+]
+
+const truncateText = (value: string, maxLength = 2000): string => {
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+const formatSubAgentContext = (reports: SubAgentReport[]): string => {
+  if (reports.length === 0) return ''
+  const blocks = reports.map((report) => {
+    const trimmed = truncateText(report.report.trim())
+    return `Goal: ${report.goal}\nReport:\n${trimmed}`
+  })
+  return `\n\nSub-agent reports (pre-run):\n${blocks.join('\n\n')}\n`
+}
+
+const createCachedSubAgentTool = (
+  baseTool: Tool,
+  cache: Map<string, string>
+): Tool =>
+  tool({
+    description: `${baseTool.description ?? 'Spawn a sub-agent.'} (cached)`,
+    parameters: baseTool.parameters,
+    execute: async (args, options) => {
+      const parsed = isRecord(args) ? args : {}
+      const goal = typeof parsed.goal === 'string' ? parsed.goal : ''
+      if (goal) {
+        if (cache.has(goal)) {
+          return cache.get(goal) ?? ''
+        }
+        const prefixMatch = goal.match(/^\[[^\]]+\]/)?.[0]
+        if (prefixMatch) {
+          const cachedGoal = Array.from(cache.keys()).find((key) =>
+            key.startsWith(prefixMatch)
+          )
+          if (cachedGoal) {
+            return cache.get(cachedGoal) ?? ''
+          }
+        }
+      }
+      if (!baseTool.execute) {
+        return 'spawn_subagent unavailable for this run.'
+      }
+      const result = await baseTool.execute(args as never, options)
+      if (goal && typeof result === 'string') {
+        cache.set(goal, result)
+      }
+      return result
+    },
+  })
+
+const runSubAgentPreflight = async ({
+  model,
+  spawnTool,
+  maxSteps,
+  fileContext,
+  safeWriteSSE,
+}: {
+  model: ReturnType<typeof createModel>
+  spawnTool: Tool
+  maxSteps: number
+  fileContext: string
+  safeWriteSSE: (payload: unknown) => Promise<boolean>
+}): Promise<SubAgentReport[]> => {
+  const fileNote = fileContext.trim()
+    ? ` Focus on changed files: ${fileContext}.`
+    : ''
+  const goalLines = subAgentGoals
+    .map((item, index) => `${index + 1}) ${item.goal}${fileNote}`)
+    .join('\n')
+
+  const prompt = `Spawn exactly four sub-agents in parallel using spawn_subagent.
+Rules:
+- Use ONLY spawn_subagent tool calls.
+- Call spawn_subagent once per goal in the same step.
+- Do NOT call any other tools.
+- Do NOT output any text.
+
+Goals:
+${goalLines}
+`
+
+  const reports: SubAgentReport[] = []
+  const goalByToolCallId = new Map<string, string>()
+
+  await reviewAgent(
+    prompt,
+    model,
+    Math.min(maxSteps, 2),
+    { spawn_subagent: spawnTool },
+    undefined,
+    async (step) => {
+      const toolCalls = normalizeToolCalls(step.toolCalls)
+      const toolResults = normalizeToolResults(step.toolResults)
+
+      for (const call of toolCalls) {
+        if (typeof call.toolName !== 'string') continue
+        if (normalizeToolNameKey(call.toolName) !== 'spawn_subagent') continue
+        if (typeof call.toolCallId !== 'string') continue
+        const args = isRecord(call.args) ? call.args : {}
+        const goal = typeof args.goal === 'string' ? args.goal : ''
+        if (goal) {
+          goalByToolCallId.set(call.toolCallId, goal)
+        }
+      }
+
+      for (const result of toolResults) {
+        if (typeof result.toolName !== 'string') continue
+        if (normalizeToolNameKey(result.toolName) !== 'spawn_subagent') continue
+        if (typeof result.toolCallId !== 'string') continue
+        const raw = result.result
+        const report =
+          typeof raw === 'string' ? raw : raw === undefined ? '' : JSON.stringify(raw)
+        const goal = goalByToolCallId.get(result.toolCallId)
+        if (goal && report) {
+          reports.push({ goal, report })
+        }
+      }
+
+      const ok = await safeWriteSSE({
+        type: 'step',
+        step: {
+          toolCalls,
+          toolResults,
+          text: '',
+          usage: step.usage,
+        },
+      })
+      if (!ok) {
+        throw new Error('Client disconnected.')
+      }
+    }
+  )
+
+  return reports
 }
 
 const inferSeverity = (text: string): 'low' | 'medium' | 'high' | 'critical' => {
@@ -511,7 +707,7 @@ app.post('/api/review', async (c) => {
       const filteredFiles = filterFiles(files, []) // TODO: Add ignore support
 
       // 3. Construct Prompt
-      const prompt = await constructPrompt(filteredFiles, reviewLanguage)
+      let prompt = await constructPrompt(filteredFiles, reviewLanguage)
 
       // 4. Setup Model & Tools
       const model = createModel(modelString, {
@@ -568,6 +764,53 @@ app.post('/api/review', async (c) => {
       // 5. Run Agent
       await safeWriteSSE({ type: 'status', message: 'Agent started...' })
 
+      const subAgentCache = new Map<string, string>()
+      if (tools.spawn_subagent) {
+        try {
+          await safeWriteSSE({
+            type: 'status',
+            message: 'Spawning sub-agents...',
+          })
+
+          const reports = await runSubAgentPreflight({
+            model,
+            spawnTool: tools.spawn_subagent,
+            maxSteps,
+            fileContext: filteredFiles.map((file) => file.fileName).join(', '),
+            safeWriteSSE,
+          })
+
+          for (const report of reports) {
+            subAgentCache.set(report.goal, report.report)
+          }
+
+          if (reports.length > 0) {
+            prompt = `${prompt}${formatSubAgentContext(reports)}`
+            tools.spawn_subagent = createCachedSubAgentTool(
+              tools.spawn_subagent,
+              subAgentCache
+            )
+            await safeWriteSSE({
+              type: 'status',
+              message: 'Sub-agents ready. Continuing review...',
+            })
+          } else {
+            await safeWriteSSE({
+              type: 'status',
+              message:
+                'Sub-agent preflight did not return reports. Continuing review...',
+            })
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          logger.warn(`Sub-agent preflight failed: ${message}`)
+          await safeWriteSSE({
+            type: 'status',
+            message: `Sub-agent preflight failed: ${message}`,
+          })
+        }
+      }
+
       const sandboxExecRepeatLimit = resolveSandboxExecRepeatLimit()
       const sandboxExecCounts = new Map<string, number>()
       const sandboxExecKeyByToolCallId = new Map<string, string>()
@@ -588,6 +831,7 @@ app.post('/api/review', async (c) => {
         if (
           alreadySawReportBug ||
           !sanitizedReportText ||
+          isMetaSummary(sanitizedReportText) ||
           !containsBugKeywords(sanitizedReportText)
         ) {
           return
@@ -632,6 +876,9 @@ app.post('/api/review', async (c) => {
         }
 
         const candidates = extractBugCandidates(sanitizedReportText).slice(0, 10)
+        if (candidates.length === 0 && !looksLikeBugNarrative(sanitizedReportText)) {
+          return
+        }
 
         const verifyAndReportSingleBug = async (candidate: string) => {
           const bugPrompt = `You previously completed a PR review.
@@ -1027,6 +1274,12 @@ Task:
 
       let finalReportText =
         submittedReport ?? stripProviderJsonFromText(result.text ?? '')
+      if (finalReportText.trim() && isMetaSummary(finalReportText)) {
+        finalReportText = await runRecoverySummary(
+          'model produced a non-actionable meta summary.',
+          resolveMostRepeatedSandboxExecKey() ?? undefined
+        )
+      }
       if (!finalReportText.trim()) {
         finalReportText = await runRecoverySummary(
           'model did not produce submit_summary or any final text.',

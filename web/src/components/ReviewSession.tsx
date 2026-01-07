@@ -184,6 +184,13 @@ export function ReviewSession({
   const stepsCount = timelineEntries.length
   const modelName = activeSession?.modelString ?? '未开始'
 
+  const shellMotion = {
+    initial: { opacity: 0.1, y: 26, scale: 0.98 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    exit: { opacity: 0.1, y: -18, scale: 0.98 },
+    transition: { type: 'spring', stiffness: 260, damping: 24, mass: 0.7 },
+  }
+
   return (
     <div
       ref={rootRef}
@@ -199,10 +206,10 @@ export function ReviewSession({
 
       <motion.div
         key="review"
-        initial={{ opacity: 0.14, x: 30 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0.14, x: -30 }}
-        transition={{ type: 'spring', stiffness: 280, damping: 28 }}
+        initial={shellMotion.initial}
+        animate={shellMotion.animate}
+        exit={shellMotion.exit}
+        transition={shellMotion.transition}
         className="review-shell"
       >
         <div className="review-header">
@@ -317,13 +324,9 @@ export function ReviewSession({
 
         {activeSession?.finalResult && (
           <motion.div
-            initial={{ opacity: 0.14, y: 20, scale: 0.95 }}
+            initial={{ opacity: 0.12, y: 20, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{
-              type: 'spring',
-              stiffness: 260,
-              damping: 25,
-            }}
+            transition={{ type: 'spring', stiffness: 240, damping: 22, mass: 0.7 }}
             className="final-report-card markdown"
           >
             <div className="final-report-header">

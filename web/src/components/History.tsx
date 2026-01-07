@@ -53,7 +53,7 @@ export function History({
       <motion.div
         initial={{ opacity: 0.14, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 22, mass: 0.8 }}
         className="history-shell"
       >
         <div className="history-header">

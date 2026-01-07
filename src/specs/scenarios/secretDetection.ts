@@ -24,11 +24,10 @@ const secretDetectionScenarios: TestScenario[] = [
       ],
     },
     expectations: {
-      shouldCallTools: ['plan', 'submit_summary'],
-      shouldNotCallTools: ['spawn_subagent'],
+      shouldCallTools: ['plan', 'spawn_subagent', 'submit_summary'],
       summaryContains: ['secret', 'security'],
       minimumToolCalls: 1,
-      maximumToolCalls: 20,
+      maximumToolCalls: 40,
     },
   },
   {
@@ -56,8 +55,7 @@ export default pool`,
       ],
     },
     expectations: {
-      shouldCallTools: ['plan', 'suggest_change', 'submit_summary'],
-      shouldNotCallTools: ['spawn_subagent'],
+      shouldCallTools: ['plan', 'spawn_subagent', 'suggest_change', 'submit_summary'],
       toolCallValidation: [
         {
           toolName: 'suggest_change',

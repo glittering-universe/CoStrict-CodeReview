@@ -3,7 +3,6 @@ import type { Tool } from 'ai'
 import type { LanguageModelV1 } from 'ai'
 import { z } from 'zod'
 import {
-  createSubAgentTool,
   createSubmitSummaryTool,
   createSuggestChangesTool,
   getBaseTools,
@@ -93,6 +92,17 @@ export const createTestPlanTool = () =>
     }),
     execute: async ({ steps }) => {
       return `Plan updated with ${steps.length} step(s) (test stub).`
+    },
+  })
+
+export const createTestSpawnSubAgentTool = () =>
+  tool({
+    description: 'Spawn a sub-agent (test stub).',
+    parameters: z.object({
+      goal: z.string().describe('The specific goal or task for the sub-agent to accomplish.'),
+    }),
+    execute: async ({ goal }) => {
+      return `## Summary\nStubbed sub-agent report.\n\n## Findings\nGoal received: ${goal}\n\n## Recommendations\nNone (stub).\n\n## Conclusion\nSub-agent stub executed.`
     },
   })
 
@@ -213,9 +223,7 @@ export const createTestTools = (
 
   // Add sub-agent if requested
   if (model && includeSubAgent) {
-    tools.spawn_subagent = createSubAgentTool(model, maxSteps, {
-      sandboxConfirm: async () => ({ approved: true }),
-    })
+    tools.spawn_subagent = createTestSpawnSubAgentTool()
   }
 
   return tools

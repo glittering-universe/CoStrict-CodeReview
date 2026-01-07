@@ -243,6 +243,12 @@ const normalizeText = (value: unknown): string => {
   return safeStringify(value)
 }
 
+const rowMotion = {
+  initial: { opacity: 0, y: 14, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  transition: { type: 'spring', stiffness: 320, damping: 26, mass: 0.6 },
+}
+
 const CopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false)
 
@@ -331,9 +337,9 @@ export function LogItem({
     const { cleanText, jsonBlocks } = extractJsonBlocks(log.message)
     return (
       <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        initial={rowMotion.initial}
+        animate={rowMotion.animate}
+        transition={rowMotion.transition}
         className="progress-step-row"
       >
         <div className="progress-step-number">{displayableIndex}</div>
@@ -362,8 +368,9 @@ export function LogItem({
   if (log.type === 'files') {
     return (
       <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={rowMotion.initial}
+        animate={rowMotion.animate}
+        transition={rowMotion.transition}
         className="progress-step-row"
       >
         <div className="progress-step-number">{displayableIndex}</div>
@@ -430,8 +437,9 @@ export function LogItem({
 
     return (
       <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={rowMotion.initial}
+        animate={rowMotion.animate}
+        transition={rowMotion.transition}
         className="progress-step-row"
       >
         <div className="progress-step-number">{displayableIndex}</div>
@@ -567,8 +575,9 @@ export function LogItem({
 
     return (
       <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={rowMotion.initial}
+        animate={rowMotion.animate}
+        transition={rowMotion.transition}
         className="progress-step-row"
       >
         <div className="progress-step-number">{displayableIndex}</div>
@@ -620,7 +629,7 @@ export function LogItem({
                 initial={{ height: 0, opacity: 0.14 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0.14 }}
-                transition={{ duration: 0.2 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 28 }}
                 className="progress-step-tools"
               >
                 <div className="progress-step-toolsList">
@@ -745,8 +754,9 @@ export function LogItem({
   if (log.type === 'error') {
     return (
       <motion.div
-        initial={{ opacity: 0.14, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={rowMotion.initial}
+        animate={rowMotion.animate}
+        transition={rowMotion.transition}
         className="progress-step-row progress-step-row--error"
       >
         <div className="progress-step-number progress-step-number--error">

@@ -529,10 +529,14 @@ function App() {
           <motion.div
             key="home"
             className="view-layer"
-            initial={{ opacity: 1, filter: 'blur(0px)' }}
-            animate={{ opacity: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0.14, filter: 'blur(28px) brightness(0.18) saturate(0.7)' }}
-            transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0.98, y: 12, filter: 'blur(0px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{
+              opacity: 0.14,
+              y: -12,
+              filter: 'blur(28px) brightness(0.18) saturate(0.7)',
+            }}
+            transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
           >
             <Home
               modelString={modelString}
@@ -546,10 +550,10 @@ function App() {
           <motion.div
             key="review"
             className="view-layer"
-            initial={{ opacity: 1, filter: 'blur(0px)' }}
-            animate={{ opacity: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0.14, filter: 'blur(18px) brightness(0.22)' }}
-            transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0.98, y: 10, filter: 'blur(0px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0.14, y: -10, filter: 'blur(18px) brightness(0.22)' }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
             <ReviewSessionComponent
               activeSession={activeSession}
@@ -567,10 +571,10 @@ function App() {
           <motion.div
             key="history"
             className="view-layer"
-            initial={{ opacity: 1, filter: 'blur(0px)' }}
-            animate={{ opacity: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0.14, filter: 'blur(18px) brightness(0.22)' }}
-            transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0.98, y: 10, filter: 'blur(0px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0.14, y: -10, filter: 'blur(18px) brightness(0.22)' }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
             <History
               history={history}
@@ -601,7 +605,7 @@ function App() {
             initial={{ opacity: 0.14, scale: 0.94, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0.14, scale: 0.94, y: 12 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 20, mass: 0.8 }}
             className="sandbox-modal"
           >
             <div className="modal-header">
