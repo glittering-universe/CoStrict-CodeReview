@@ -2,6 +2,7 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { resolveWorkspacePath } from '../../git/getChangedFilesNames'
 
 const execAsync = promisify(exec)
 const resolveMaxOutputChars = (): number => {
@@ -38,6 +39,7 @@ export const bashTool = tool({
   }),
   execute: async ({ command, cwd, timeout }) => {
     try {
+      const resolvedCwd = resolveWorkspacePath(cwd)
       // Prevent potential harmful commands
       const dangerousCommands = ['rm -rf', 'mkfs', 'dd', ':(){', 'wget', 'curl']
       for (const dangerous of dangerousCommands) {
@@ -47,7 +49,7 @@ export const bashTool = tool({
       }
 
       const { stdout, stderr } = await execAsync(command, {
-        cwd,
+        cwd: resolvedCwd,
         timeout,
         maxBuffer: 1024 * 1024, // 1MB output buffer
       })

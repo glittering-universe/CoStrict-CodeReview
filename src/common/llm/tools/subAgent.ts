@@ -16,6 +16,7 @@ import {
   type SandboxExecOnEvent,
   createSandboxExecTool,
 } from './sandboxExec'
+import { extractSubAgentReport } from './subAgentReport'
 import { thinkingTool } from './thinking'
 
 const resolveMaxModelRetries = (): number => {
@@ -140,9 +141,12 @@ Submit the report to the main agent using the 'submit_report' tool.`
 
         await mcpClientManager.closeClients()
 
-        if (result.toolCalls.length > 0) {
-          return result.toolCalls[0].args.report
-        }
+        const report = extractSubAgentReport({
+          toolCalls: result.toolCalls,
+          toolResults: result.toolResults,
+          steps: result.steps,
+        })
+        if (report) return report
 
         logger.error('Sub-agent completed execution but produced no report output')
         logger.error('Sub-agent result finishReason:', result.finishReason)

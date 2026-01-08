@@ -2,6 +2,7 @@ import path from 'node:path'
 import { tool } from 'ai'
 import { glob } from 'tinyglobby'
 import { z } from 'zod'
+import { resolveWorkspacePath } from '../../git/getChangedFilesNames'
 
 export const globTool = tool({
   description:
@@ -40,8 +41,9 @@ export const globTool = tool({
     maxResults,
   }) => {
     try {
+      const resolvedCwd = resolveWorkspacePath(cwd)
       const options = {
-        cwd,
+        cwd: resolvedCwd,
         dot: includeHidden,
         onlyFiles,
         ignore: excludePatterns || [],

@@ -2621,6 +2621,16 @@ h1.hero-title {
   color: var(--text-muted);
 }
 
+.settings-hint {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.settings-hint--error {
+  color: var(--error);
+}
+
 .settings-control {
   flex-shrink: 0;
   min-width: 200px;

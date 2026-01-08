@@ -51,7 +51,12 @@ function App() {
   })
   const [showConfig, setShowConfig] = useState(false)
   const [config, setConfig] = useState<ConfigSettings>(() => {
-    const defaults: ConfigSettings = { apiKey: '', baseUrl: '', environment: 'local' }
+    const defaults: ConfigSettings = {
+      apiKey: '',
+      baseUrl: '',
+      environment: 'local',
+      localRepoPath: '',
+    }
     if (typeof window === 'undefined') return defaults
     const stored = window.localStorage.getItem(CONFIG_STORAGE_KEY)
     if (!stored) return defaults
@@ -60,6 +65,10 @@ function App() {
       return {
         apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : defaults.apiKey,
         baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : defaults.baseUrl,
+        localRepoPath:
+          typeof parsed.localRepoPath === 'string'
+            ? parsed.localRepoPath
+            : defaults.localRepoPath,
         environment:
           typeof parsed.environment === 'string'
             ? parsed.environment
@@ -185,6 +194,10 @@ function App() {
           apiKey: config.apiKey || undefined,
           baseUrl: config.baseUrl || undefined,
           environment: config.environment,
+          repoPath:
+            config.environment === 'local' && config.localRepoPath.trim()
+              ? config.localRepoPath.trim()
+              : undefined,
         }),
       })
 

@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import path from 'node:path'
 import { generateText, tool, type Tool } from 'ai'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
@@ -7,7 +9,15 @@ import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
 import { loadDotenv } from './common/config/dotenv'
 import { loadLlmCredentials, resolveLlmCredentials } from './common/config/llmCredentials'
+import {
+  resolveGitRootFromPath,
+  withWorkspaceRoot,
+} from './common/git/getChangedFilesNames'
 import { getFilesWithChanges } from './common/git/getFilesWithChanges'
+import {
+  scanLocalGitRepos,
+  type LocalRepoScanResult,
+} from './common/git/scanLocalRepos'
 import { MCPClientManager } from './common/llm/mcp/client'
 import { createModel } from './common/llm/models'
 import { stripProviderJsonFromText } from './common/llm/stripProviderJson'
@@ -62,6 +72,103 @@ const resolveSandboxExecRepeatLimit = (): number => {
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
   if (Number.isFinite(parsed) && parsed >= 2) return parsed
   return 4
+}
+
+const resolveRepoScanMaxDepth = (): number => {
+  const raw = process.env.COSTRICT_REPO_SCAN_MAX_DEPTH
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  return 6
+}
+
+const resolveRepoScanMaxResults = (): number => {
+  const raw = process.env.COSTRICT_REPO_SCAN_MAX_RESULTS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  return 200
+}
+
+const resolveRepoScanCacheTtlMs = (): number => {
+  const raw = process.env.COSTRICT_REPO_SCAN_CACHE_TTL_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  return 60_000
+}
+
+const isPathWithinRoot = (root: string, target: string): boolean => {
+  const relative = path.relative(root, target)
+  if (!relative) return true
+  if (relative.startsWith('..')) return false
+  return !path.isAbsolute(relative)
+}
+
+const resolveRepoScanRoots = (): string[] => {
+  const raw = process.env.COSTRICT_REPO_SCAN_ROOTS
+  const splitPattern = new RegExp(`[${path.delimiter},\\n\\r]`)
+  const roots = raw
+    ? raw
+        .split(splitPattern)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [homedir()]
+
+  const resolvedRoots = roots.map((entry) => path.resolve(entry))
+  const current = process.cwd()
+  if (!resolvedRoots.some((root) => isPathWithinRoot(root, current))) {
+    resolvedRoots.push(current)
+  }
+
+  const uniqueRoots = Array.from(new Set(resolvedRoots))
+  return uniqueRoots.filter((root) => {
+    try {
+      return statSync(root).isDirectory()
+    } catch {
+      return false
+    }
+  })
+}
+
+type RepoScanCacheEntry = {
+  timestamp: number
+  optionsKey: string
+  roots: string[]
+  maxDepth: number
+  maxResults: number
+  result: LocalRepoScanResult
+}
+
+let repoScanCache: RepoScanCacheEntry | null = null
+
+const listLocalRepos = async (forceRefresh = false): Promise<RepoScanCacheEntry> => {
+  const roots = resolveRepoScanRoots()
+  const maxDepth = resolveRepoScanMaxDepth()
+  const maxResults = resolveRepoScanMaxResults()
+  const optionsKey = JSON.stringify({ roots, maxDepth, maxResults })
+  const cacheTtlMs = resolveRepoScanCacheTtlMs()
+
+  if (
+    !forceRefresh &&
+    repoScanCache &&
+    repoScanCache.optionsKey === optionsKey &&
+    Date.now() - repoScanCache.timestamp < cacheTtlMs
+  ) {
+    return repoScanCache
+  }
+
+  const result = roots.length
+    ? await scanLocalGitRepos({ roots, maxDepth, maxResults })
+    : { repos: [], truncated: false }
+
+  repoScanCache = {
+    timestamp: Date.now(),
+    optionsKey,
+    roots,
+    maxDepth,
+    maxResults,
+    result,
+  }
+
+  return repoScanCache
 }
 
 type StreamedToolCall = {
@@ -567,36 +674,81 @@ app.use('/*', cors())
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
 app.get('/api/llm/effective', async (c) => {
-  const fileCreds = await loadLlmCredentials()
-  const resolved = await resolveLlmCredentials()
+  const run = async () => {
+    const fileCreds = await loadLlmCredentials()
+    const resolved = await resolveLlmCredentials()
 
-  const envApiKey = process.env.OPENAI_API_KEY
-  const envBaseUrl = process.env.OPENAI_API_BASE
+    const envApiKey = process.env.OPENAI_API_KEY
+    const envBaseUrl = process.env.OPENAI_API_BASE
 
-  const envApiKeyNormalized = envApiKey?.trim() || undefined
-  const envBaseUrlNormalized = normalizeBaseUrl(envBaseUrl)
+    const envApiKeyNormalized = envApiKey?.trim() || undefined
+    const envBaseUrlNormalized = normalizeBaseUrl(envBaseUrl)
 
-  const apiKeySource = envApiKeyNormalized
-    ? 'env'
-    : fileCreds.openaiApiKey
-      ? 'file'
-      : 'missing'
-  const baseUrlSource = envBaseUrlNormalized
-    ? 'env'
-    : fileCreds.openaiApiBase
-      ? 'file'
-      : 'missing'
+    const apiKeySource = envApiKeyNormalized
+      ? 'env'
+      : fileCreds.openaiApiKey
+        ? 'file'
+        : 'missing'
+    const baseUrlSource = envBaseUrlNormalized
+      ? 'env'
+      : fileCreds.openaiApiBase
+        ? 'file'
+        : 'missing'
 
-  const apiKey = resolved.openaiApiKey
-  const baseUrl = resolved.openaiApiBase
+    const apiKey = resolved.openaiApiKey
+    const baseUrl = resolved.openaiApiBase
 
-  return c.json({
-    baseUrl: baseUrl ?? '',
-    baseUrlSource,
-    apiKeyMasked: apiKey ? maskApiKey(apiKey) : '',
-    apiKeySource,
-    hasApiKey: Boolean(apiKey),
-  })
+    return c.json({
+      baseUrl: baseUrl ?? '',
+      baseUrlSource,
+      apiKeyMasked: apiKey ? maskApiKey(apiKey) : '',
+      apiKeySource,
+      hasApiKey: Boolean(apiKey),
+    })
+  }
+
+  const url = new URL(c.req.url, 'http://localhost')
+  const repoPath = url.searchParams.get('repoPath')?.trim()
+  if (repoPath) {
+    try {
+      const workspaceRoot = await resolveGitRootFromPath(repoPath)
+      return await withWorkspaceRoot(workspaceRoot, run)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.warn(`Ignoring invalid repo path for effective config: ${message}`)
+    }
+  }
+
+  return run()
+})
+
+app.get('/api/local/repos', async (c) => {
+  const url = new URL(c.req.url, 'http://localhost')
+  const forceRefresh = url.searchParams.get('refresh') === '1'
+
+  try {
+    const scan = await listLocalRepos(forceRefresh)
+    let currentRepo: string | undefined
+
+    try {
+      currentRepo = await resolveGitRootFromPath(process.cwd())
+    } catch {
+      currentRepo = undefined
+    }
+
+    return c.json({
+      repos: scan.result.repos,
+      truncated: scan.result.truncated,
+      roots: scan.roots,
+      maxDepth: scan.maxDepth,
+      maxResults: scan.maxResults,
+      current: currentRepo ?? '',
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error(`Failed to scan local repos: ${message}`)
+    return c.json({ repos: [], truncated: false, message }, 500)
+  }
 })
 
 app.post('/api/sandbox/decision', async (c) => {
@@ -623,710 +775,760 @@ app.post('/api/review', async (c) => {
     reviewLanguage = 'English',
     apiKey,
     baseUrl,
+    repoPath,
   } = body
 
-  const credentials = await resolveLlmCredentials()
   const trimmedBaseUrl =
     typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/$/, '') : undefined
   const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
-  const effectiveBaseUrl = trimmedBaseUrl || credentials.openaiApiBase
-  const effectiveApiKey = trimmedApiKey || credentials.openaiApiKey
+  let effectiveBaseUrl: string | undefined
+  let effectiveApiKey: string | undefined
+  const rawRepoPath = typeof repoPath === 'string' ? repoPath.trim() : ''
 
-  return streamSSE(c, async (stream) => {
-    let clients: MCPClientManager | null = null
-    let heartbeat: ReturnType<typeof setInterval> | null = null
-
-    let sseWriteQueue: Promise<boolean> = Promise.resolve(true)
-    let sseDisconnected = false
-
-    const safeWriteSSE = (data: unknown): Promise<boolean> => {
-      if (sseDisconnected) {
-        return Promise.resolve(false)
-      }
-
-      const payload = JSON.stringify(data)
-      sseWriteQueue = sseWriteQueue.then(async () => {
-        if (sseDisconnected) return false
-        try {
-          await stream.writeSSE({ data: payload })
-          return true
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          sseDisconnected = true
-          logger.warn(`SSE write failed (client likely disconnected): ${message}`)
-          return false
-        }
-      })
-
-      return sseWriteQueue
+  let workspaceRoot: string | undefined
+  if (rawRepoPath) {
+    const resolvedPath = path.resolve(rawRepoPath)
+    if (!existsSync(resolvedPath)) {
+      return c.json({ message: `Repo path not found: ${resolvedPath}` }, 400)
     }
-
-    const startHeartbeat = () => {
-      // Keep the SSE connection alive through proxies that enforce idle timeouts.
-      heartbeat = setInterval(() => {
-        safeWriteSSE({ type: 'ping', timestamp: Date.now() }).catch(() => {
-          // Ignore failures; safeWriteSSE already logs.
-        })
-      }, resolveSsePingIntervalMs())
-    }
-
-    const stopHeartbeat = () => {
-      if (heartbeat) {
-        clearInterval(heartbeat)
-        heartbeat = null
+    try {
+      const stat = statSync(resolvedPath)
+      if (!stat.isDirectory()) {
+        return c.json(
+          { message: `Repo path must be a directory: ${resolvedPath}` },
+          400
+        )
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return c.json({ message: `Failed to inspect repo path: ${message}` }, 400)
     }
 
     try {
-      startHeartbeat()
+      workspaceRoot = await resolveGitRootFromPath(resolvedPath)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return c.json(
+        { message: `Repo path is not a git repository: ${message}` },
+        400
+      )
+    }
+  }
 
-      await safeWriteSSE({ type: 'status', message: 'Initializing review...' })
+  return streamSSE(c, async (stream) => {
+    const runReview = async () => {
+      let clients: MCPClientManager | null = null
+      let heartbeat: ReturnType<typeof setInterval> | null = null
 
-      // 1. Get Files
-      logger.debug('Getting platform provider...')
-      const platformProvider = await getPlatformProvider('local')
-      logger.debug('Getting files with changes...')
-      const files = await getFilesWithChanges('local')
-      logger.debug(`Found ${files.length} files`)
+      let sseWriteQueue: Promise<boolean> = Promise.resolve(true)
+      let sseDisconnected = false
 
-      if (files.length === 0) {
-        logger.debug('No files found, returning error')
-        await safeWriteSSE({
-          type: 'error',
-          message: 'No changed files found. Please stage some changes.',
+      const safeWriteSSE = (data: unknown): Promise<boolean> => {
+        if (sseDisconnected) {
+          return Promise.resolve(false)
+        }
+
+        const payload = JSON.stringify(data)
+        sseWriteQueue = sseWriteQueue.then(async () => {
+          if (sseDisconnected) return false
+          try {
+            await stream.writeSSE({ data: payload })
+            return true
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            sseDisconnected = true
+            logger.warn(`SSE write failed (client likely disconnected): ${message}`)
+            return false
+          }
         })
-        return
+
+        return sseWriteQueue
       }
 
-      await safeWriteSSE({
-        type: 'files',
-        files: files.map((f) => f.fileName),
-      })
+      const startHeartbeat = () => {
+        // Keep the SSE connection alive through proxies that enforce idle timeouts.
+        heartbeat = setInterval(() => {
+          safeWriteSSE({ type: 'ping', timestamp: Date.now() }).catch(() => {
+            // Ignore failures; safeWriteSSE already logs.
+          })
+        }, resolveSsePingIntervalMs())
+      }
 
-      // 2. Filter Files
-      const filteredFiles = filterFiles(files, []) // TODO: Add ignore support
+      const stopHeartbeat = () => {
+        if (heartbeat) {
+          clearInterval(heartbeat)
+          heartbeat = null
+        }
+      }
 
-      // 3. Construct Prompt
-      let prompt = await constructPrompt(filteredFiles, reviewLanguage)
+      try {
+        startHeartbeat()
 
-      // 4. Setup Model & Tools
-      const model = createModel(modelString, {
-        baseURL: effectiveBaseUrl,
-        apiKey: effectiveApiKey,
-      })
+        if (workspaceRoot) {
+          await safeWriteSSE({
+            type: 'status',
+            message: `Using local repo: ${workspaceRoot}`,
+          })
+        }
 
-      clients = new MCPClientManager()
-      await clients.loadConfig()
-      await clients.startClients()
+        const credentials = await resolveLlmCredentials()
+        effectiveBaseUrl = trimmedBaseUrl || credentials.openaiApiBase
+        effectiveApiKey = trimmedApiKey || credentials.openaiApiKey
 
-      const sandboxConfirm = async ({
-        command,
-        cwd,
-        timeout,
-        toolCallId,
-      }: {
-        command: string
-        cwd: string
-        timeout: number
-        toolCallId?: string
-      }): Promise<SandboxExecApprovalResponse> => {
-        const requestId = crypto.randomUUID()
+        await safeWriteSSE({ type: 'status', message: 'Initializing review...' })
 
-        const ok = await safeWriteSSE({
-          type: 'sandbox_request',
-          requestId,
-          toolCallId,
+        // 1. Get Files
+        logger.debug('Getting platform provider...')
+        const platformProvider = await getPlatformProvider('local')
+        logger.debug('Getting files with changes...')
+        const files = await getFilesWithChanges('local')
+        logger.debug(`Found ${files.length} files`)
+
+        if (files.length === 0) {
+          logger.debug('No files found, returning error')
+          await safeWriteSSE({
+            type: 'error',
+            message: 'No changed files found. Please stage some changes.',
+          })
+          return
+        }
+
+        await safeWriteSSE({
+          type: 'files',
+          files: files.map((f) => f.fileName),
+        })
+
+        // 2. Filter Files
+        const filteredFiles = filterFiles(files, []) // TODO: Add ignore support
+
+        // 3. Construct Prompt
+        let prompt = await constructPrompt(filteredFiles, reviewLanguage)
+
+        // 4. Setup Model & Tools
+        const model = createModel(modelString, {
+          baseURL: effectiveBaseUrl,
+          apiKey: effectiveApiKey,
+        })
+
+        clients = new MCPClientManager()
+        await clients.loadConfig()
+        await clients.startClients()
+
+        const sandboxConfirm = async ({
           command,
           cwd,
           timeout,
-        })
-        if (!ok) {
-          return { approved: false, reason: 'Client disconnected.' }
-        }
-
-        return waitForSandboxDecision(requestId, timeout + 60_000)
-      }
-
-      const sandboxOnEvent: SandboxExecOnEvent = (event) => {
-        void safeWriteSSE(event)
-      }
-
-      const tools = await getAllTools({
-        platformProvider,
-        model,
-        mcpClientManager: clients,
-        includeSubAgent: true,
-        maxSteps,
-        sandboxConfirm,
-        sandboxOnEvent,
-      })
-
-      // 5. Run Agent
-      await safeWriteSSE({ type: 'status', message: 'Agent started...' })
-
-      const subAgentCache = new Map<string, string>()
-      if (tools.spawn_subagent) {
-        try {
-          await safeWriteSSE({
-            type: 'status',
-            message: 'Spawning sub-agents...',
-          })
-
-          const reports = await runSubAgentPreflight({
-            model,
-            spawnTool: tools.spawn_subagent,
-            maxSteps,
-            fileContext: filteredFiles.map((file) => file.fileName).join(', '),
-            safeWriteSSE,
-          })
-
-          for (const report of reports) {
-            subAgentCache.set(report.goal, report.report)
-          }
-
-          if (reports.length > 0) {
-            prompt = `${prompt}${formatSubAgentContext(reports)}`
-            tools.spawn_subagent = createCachedSubAgentTool(
-              tools.spawn_subagent,
-              subAgentCache
-            )
-            await safeWriteSSE({
-              type: 'status',
-              message: 'Sub-agents ready. Continuing review...',
-            })
-          } else {
-            await safeWriteSSE({
-              type: 'status',
-              message:
-                'Sub-agent preflight did not return reports. Continuing review...',
-            })
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          logger.warn(`Sub-agent preflight failed: ${message}`)
-          await safeWriteSSE({
-            type: 'status',
-            message: `Sub-agent preflight failed: ${message}`,
-          })
-        }
-      }
-
-      const sandboxExecRepeatLimit = resolveSandboxExecRepeatLimit()
-      const sandboxExecCounts = new Map<string, number>()
-      const sandboxExecKeyByToolCallId = new Map<string, string>()
-      const sandboxExecEvidenceByKey = new Map<string, string>()
-      let sandboxLoopKey: string | null = null
-      let sandboxOnlySignature: string | null = null
-      let sandboxOnlyRepeats = 0
-      const abortController = new AbortController()
-
-      let submittedReport: string | null = null
-      let sawReportBug = false
-
-      const emitBugCardsIfNeeded = async (
-        reportText: string,
-        alreadySawReportBug: boolean
-      ) => {
-        const sanitizedReportText = stripPlanningContent(reportText)
-        if (
-          alreadySawReportBug ||
-          !sanitizedReportText ||
-          isMetaSummary(sanitizedReportText) ||
-          !containsBugKeywords(sanitizedReportText)
-        ) {
-          return
-        }
-
-        await safeWriteSSE({
-          type: 'status',
-          message: 'Recording bug cards (report_bug) from the review summary...',
-        })
-
-        let bugCardsEmitted = false
-
-        const streamBugStep = async (step: {
-          toolCalls: unknown
-          toolResults?: unknown
-          text: unknown
-          usage: unknown
-        }) => {
-          const toolCalls = normalizeToolCalls(step.toolCalls)
-          const toolResults = normalizeToolResults(step.toolResults)
-          if (!bugCardsEmitted) {
-            bugCardsEmitted = toolCalls.some(
-              (call) =>
-                typeof call.toolName === 'string' &&
-                normalizeToolNameKey(call.toolName) === 'report_bug'
-            )
-          }
+          toolCallId,
+        }: {
+          command: string
+          cwd: string
+          timeout: number
+          toolCallId?: string
+        }): Promise<SandboxExecApprovalResponse> => {
+          const requestId = crypto.randomUUID()
 
           const ok = await safeWriteSSE({
-            type: 'step',
-            step: {
-              toolCalls,
-              toolResults,
-              text:
-                typeof step.text === 'string' ? stripProviderJsonFromText(step.text) : '',
-              usage: step.usage,
-            },
+            type: 'sandbox_request',
+            requestId,
+            toolCallId,
+            command,
+            cwd,
+            timeout,
           })
           if (!ok) {
-            throw new Error('Client disconnected.')
+            return { approved: false, reason: 'Client disconnected.' }
           }
+
+          return waitForSandboxDecision(requestId, timeout + 60_000)
         }
 
-        const candidates = extractBugCandidates(sanitizedReportText).slice(0, 10)
-        if (candidates.length === 0 && !looksLikeBugNarrative(sanitizedReportText)) {
-          return
+        const sandboxOnEvent: SandboxExecOnEvent = (event) => {
+          void safeWriteSSE(event)
         }
 
-        const verifyAndReportSingleBug = async (candidate: string) => {
-          const bugPrompt = `You previously completed a PR review.
+        const tools = await getAllTools({
+          platformProvider,
+          model,
+          mcpClientManager: clients,
+          includeSubAgent: true,
+          maxSteps,
+          sandboxConfirm,
+          sandboxOnEvent,
+        })
 
-Task (MANDATORY):
-- You are handling ONE bug candidate (below).
-- You MUST attempt to verify it via sandbox_exec.
-- The system handles user approval automatically when you call the tool. Do NOT ask for confirmation in text. Just call the tool.
-- Run EXACTLY ONE sandbox_exec command for this bug. Do NOT loop or retry the same command.
-- After sandbox_exec (or if denied / infeasible), call report_bug EXACTLY ONCE for this bug.
-- Set status VERIFIED only if sandbox output demonstrates the bug; otherwise UNVERIFIED with the reason.
-- Do NOT call submit_summary.
-- Do NOT output long narrative text. Prefer tool calls only.
-- Even if multiple bugs could share the same command, DO NOT reuse one sandbox_exec run for multiple bug cards. This bug needs its own sandbox_exec attempt and its own report_bug card.
-- Ignore any planning/checklist content in the context summary.
-- Use sandbox_exec ONLY for a minimal reproduction or verification command (do not use it for ls/cat/git diff or context gathering).
+        // 5. Run Agent
+        await safeWriteSSE({ type: 'status', message: 'Agent started...' })
 
-Bug candidate:
-${candidate}
+        const subAgentCache = new Map<string, string>()
+        if (tools.spawn_subagent) {
+          try {
+            await safeWriteSSE({
+              type: 'status',
+              message: 'Spawning sub-agents...',
+            })
 
-Context summary:
-${sanitizedReportText}
-`
+            const reports = await runSubAgentPreflight({
+              model,
+              spawnTool: tools.spawn_subagent,
+              maxSteps,
+              fileContext: filteredFiles.map((file) => file.fileName).join(', '),
+              safeWriteSSE,
+            })
 
-          await reviewAgent(
-            bugPrompt,
-            model,
-            Math.min(maxSteps, 6),
-            {
-              sandbox_exec: createSingleUseSandboxExecTool(tools.sandbox_exec),
-              report_bug: tools.report_bug,
-            },
-            undefined,
-            streamBugStep
-          )
-        }
+            for (const report of reports) {
+              subAgentCache.set(report.goal, report.report)
+            }
 
-        try {
-          if (candidates.length > 0) {
-            for (const candidate of candidates) {
-              const trimmed = candidate.trim()
-              if (!trimmed) continue
+            if (reports.length > 0) {
+              prompt = `${prompt}${formatSubAgentContext(reports)}`
+              tools.spawn_subagent = createCachedSubAgentTool(
+                tools.spawn_subagent,
+                subAgentCache
+              )
               await safeWriteSSE({
                 type: 'status',
-                message: `Verifying bug in sandbox: ${trimmed}`,
+                message: 'Sub-agents ready. Continuing review...',
               })
-              await verifyAndReportSingleBug(trimmed)
+            } else {
+              await safeWriteSSE({
+                type: 'status',
+                message:
+                  'Sub-agent preflight did not return reports. Continuing review...',
+              })
             }
-          } else {
-            const fallbackPrompt = `You previously completed a PR review.
-
-Task (MANDATORY):
-- Extract each distinct bug mentioned in the summary below.
-- For EACH bug: attempt ONE sandbox_exec verification, then call report_bug EXACTLY ONCE.
-- Do NOT call submit_summary.
-- Do NOT output long narrative text. Prefer tool calls only.
-- Ignore any planning/checklist content in the summary.
-- Use sandbox_exec only for minimal verification commands; do not use it for ls/cat/git diff or context gathering.
-
-Summary to extract from:
-${sanitizedReportText}
-`
-
-            await reviewAgent(
-              fallbackPrompt,
-              model,
-              Math.min(maxSteps, 10),
-              { sandbox_exec: tools.sandbox_exec, report_bug: tools.report_bug },
-              undefined,
-              streamBugStep
-            )
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          logger.warn(`Bug card extraction pass failed: ${message}`)
-          await safeWriteSSE({
-            type: 'status',
-            message: `Bug card extraction pass failed: ${message}`,
-          })
-        }
-
-        if (!bugCardsEmitted) {
-          if (candidates.length > 0) {
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            logger.warn(`Sub-agent preflight failed: ${message}`)
             await safeWriteSSE({
               type: 'status',
-              message: 'Auto-extracting bug cards from summary (heuristic fallback)...',
+              message: `Sub-agent preflight failed: ${message}`,
             })
-          } else {
-            await safeWriteSSE({
-              type: 'status',
-              message:
-                'No structured bug cards were emitted and no bug list could be extracted from the summary.',
-            })
-          }
-
-          for (const candidate of candidates) {
-            const toolCallId = `bug-${crypto.randomUUID()}`
-            const title = candidate.length > 90 ? `${candidate.slice(0, 89)}…` : candidate
-            const args = {
-              title,
-              description: `**Auto-extracted from review summary (fallback).**\n\n${candidate}`,
-              status: 'UNVERIFIED',
-              severity: inferSeverity(candidate),
-              reproduction:
-                'Run sandbox_exec with a minimal reproduction command to confirm (requires user approval).',
-              evidence: candidate,
-            }
-
-            const ok = await safeWriteSSE({
-              type: 'step',
-              step: {
-                toolCalls: [
-                  {
-                    type: 'tool-call',
-                    toolCallId,
-                    toolName: 'report_bug',
-                    args,
-                  },
-                ],
-                toolResults: [
-                  {
-                    type: 'tool-result',
-                    toolCallId,
-                    toolName: 'report_bug',
-                    result: 'Bug recorded.',
-                  },
-                ],
-                text: '',
-                usage: undefined,
-              },
-            })
-
-            if (!ok) {
-              throw new Error('Client disconnected.')
-            }
           }
         }
-      }
 
-      const runRecoverySummary = async (reason: string, evidenceKey?: string) => {
-        const evidence = evidenceKey
-          ? sandboxExecEvidenceByKey.get(evidenceKey)
-          : undefined
-        const evidenceSection = evidence
-          ? `Sandbox evidence (most recent successful run):\n\n${evidence}\n`
-          : 'Sandbox evidence was not captured.\n'
+        const sandboxExecRepeatLimit = resolveSandboxExecRepeatLimit()
+        const sandboxExecCounts = new Map<string, number>()
+        const sandboxExecKeyByToolCallId = new Map<string, string>()
+        const sandboxExecEvidenceByKey = new Map<string, string>()
+        let sandboxLoopKey: string | null = null
+        let sandboxOnlySignature: string | null = null
+        let sandboxOnlyRepeats = 0
+        const abortController = new AbortController()
 
-        const fileSections = filteredFiles
-          .map((file) => {
-            const content =
-              file.fileContent.length > 4000
-                ? `${file.fileContent.slice(0, 4000)}\n\n... (truncated)`
-                : file.fileContent
-            return `File: ${file.fileName}\n\n\`\`\`\n${content}\n\`\`\`\n`
-          })
-          .join('\n')
+        let submittedReport: string | null = null
+        let sawReportBug = false
 
-        const recoveryPrompt = `You are completing a pull request review.
+        const emitBugCardsIfNeeded = async (
+          reportText: string,
+          alreadySawReportBug: boolean
+        ) => {
+          const sanitizedReportText = stripPlanningContent(reportText)
+          if (
+            alreadySawReportBug ||
+            !sanitizedReportText ||
+            isMetaSummary(sanitizedReportText) ||
+            !containsBugKeywords(sanitizedReportText)
+          ) {
+            return
+          }
 
-Reason: ${reason}
-
-Tools are NOT available now.
-
-${evidenceSection}
-
-${fileSections}
-
-Task:
-- Write a concise, actionable review summary in ${reviewLanguage}.
-- Mention sandbox evidence (if present) and explain impact.
-- Do not output raw JSON or tool-call blobs.
-`
-
-        const recovery = await generateText({
-          model,
-          prompt: recoveryPrompt,
-          maxSteps: 1,
-        })
-        const recoveredText = stripProviderJsonFromText(recovery.text ?? '').trim()
-        const finalReportText =
-          recoveredText ||
-          `Review completed, but the model did not produce a summary. (${reason})`
-
-        try {
-          const posted = await platformProvider.postThreadComment({
-            comment: finalReportText,
-          })
-          const toolCallId = `submit-${crypto.randomUUID()}`
-          await safeWriteSSE({
-            type: 'step',
-            step: {
-              toolCalls: [
-                {
-                  type: 'tool-call',
-                  toolCallId,
-                  toolName: 'submit_summary',
-                  args: { report: finalReportText },
-                },
-              ],
-              toolResults: [
-                {
-                  type: 'tool-result',
-                  toolCallId,
-                  toolName: 'submit_summary',
-                  result: posted
-                    ? `Report posted successfully: ${posted}`
-                    : 'Report posted.',
-                },
-              ],
-              text: '',
-              usage: undefined,
-            },
-          })
-        } catch (postError) {
-          const message =
-            postError instanceof Error ? postError.message : String(postError)
-          logger.warn(`Failed to post recovery report: ${message}`)
           await safeWriteSSE({
             type: 'status',
-            message: `Failed to post recovery report: ${message}`,
+            message: 'Recording bug cards (report_bug) from the review summary...',
           })
-        }
 
-        return finalReportText
-      }
+          let bugCardsEmitted = false
 
-      const resolveMostRepeatedSandboxExecKey = (): string | null => {
-        let bestKey: string | null = null
-        let bestCount = 0
-
-        for (const [key, count] of sandboxExecCounts) {
-          if (count > bestCount) {
-            bestCount = count
-            bestKey = key
-          }
-        }
-
-        return bestKey
-      }
-
-      let result: Awaited<ReturnType<typeof reviewAgent>> | null = null
-      try {
-        result = await reviewAgent(
-          prompt,
-          model,
-          maxSteps,
-          tools,
-          () => {
-            // Summary submitted callback
-          },
-          async (step) => {
+          const streamBugStep = async (step: {
+            toolCalls: unknown
+            toolResults?: unknown
+            text: unknown
+            usage: unknown
+          }) => {
             const toolCalls = normalizeToolCalls(step.toolCalls)
             const toolResults = normalizeToolResults(step.toolResults)
-
-            const sandboxKeysInStep: string[] = []
-            let sawNonSandboxToolCall = false
-
-            for (const call of toolCalls) {
-              if (typeof call.toolName !== 'string') continue
-              const normalizedName = normalizeToolNameKey(call.toolName)
-              if (normalizedName !== 'sandbox_exec') {
-                sawNonSandboxToolCall = true
-                continue
-              }
-              if (typeof call.toolCallId !== 'string') continue
-
-              const args = isRecord(call.args) ? call.args : {}
-              const command = typeof args.command === 'string' ? args.command : ''
-              const cwd = typeof args.cwd === 'string' ? args.cwd : '.'
-              const timeout =
-                typeof args.timeout === 'number'
-                  ? String(args.timeout)
-                  : 'unknown-timeout'
-              const key = `${cwd}\n${timeout}\n${command}`
-
-              sandboxExecKeyByToolCallId.set(call.toolCallId, key)
-              sandboxExecCounts.set(key, (sandboxExecCounts.get(key) ?? 0) + 1)
-              sandboxKeysInStep.push(key)
-            }
-
-            if (sandboxKeysInStep.length > 0 && !sawNonSandboxToolCall) {
-              const signature = sandboxKeysInStep.join('\n---\n')
-              if (signature === sandboxOnlySignature) {
-                sandboxOnlyRepeats += 1
-              } else {
-                sandboxOnlySignature = signature
-                sandboxOnlyRepeats = 1
-              }
-
-              if (
-                !sandboxLoopKey &&
-                sandboxOnlyRepeats >= sandboxExecRepeatLimit &&
-                !submittedReport
-              ) {
-                sandboxLoopKey = sandboxKeysInStep[0] ?? signature
-                await safeWriteSSE({
-                  type: 'status',
-                  message:
-                    'Detected repeated sandbox_exec-only steps with the same command(s). Aborting the stuck run and generating a recovery summary...',
-                })
-                abortController.abort(
-                  new Error('sandbox_exec loop detected (repeated sandbox-only steps)')
-                )
-              }
-            } else {
-              sandboxOnlySignature = null
-              sandboxOnlyRepeats = 0
-            }
-
-            for (const toolResult of toolResults) {
-              if (typeof toolResult.toolCallId !== 'string') continue
-              const key = sandboxExecKeyByToolCallId.get(toolResult.toolCallId)
-              if (!key) continue
-              if (sandboxExecEvidenceByKey.has(key)) continue
-              if (typeof toolResult.result !== 'string') continue
-              if (toolResult.result.startsWith('Duplicate sandbox_exec prevented'))
-                continue
-              sandboxExecEvidenceByKey.set(key, toolResult.result)
-            }
-
-            if (!sawReportBug) {
-              sawReportBug = toolCalls.some(
+            if (!bugCardsEmitted) {
+              bugCardsEmitted = toolCalls.some(
                 (call) =>
                   typeof call.toolName === 'string' &&
                   normalizeToolNameKey(call.toolName) === 'report_bug'
               )
             }
 
-            const reportValue = extractSubmitSummaryReport(toolCalls, toolResults)
-            if (reportValue) submittedReport = reportValue
-
-            // Stream step
             const ok = await safeWriteSSE({
               type: 'step',
               step: {
                 toolCalls,
                 toolResults,
                 text:
-                  typeof step.text === 'string'
-                    ? stripProviderJsonFromText(step.text)
-                    : '',
+                  typeof step.text === 'string' ? stripProviderJsonFromText(step.text) : '',
                 usage: step.usage,
               },
             })
             if (!ok) {
-              // Stop work if the client is gone; prevents throwing and tearing down the response.
               throw new Error('Client disconnected.')
             }
-          },
-          abortController.signal
-        )
-      } catch (error) {
-        if (sandboxLoopKey && abortController.signal.aborted) {
-          const finalReportText = await runRecoverySummary(
-            'sandbox_exec loop detected during review execution.',
-            sandboxLoopKey
-          )
+          }
 
-          await emitBugCardsIfNeeded(finalReportText, false)
+          const candidates = extractBugCandidates(sanitizedReportText).slice(0, 10)
+          if (candidates.length === 0 && !looksLikeBugNarrative(sanitizedReportText)) {
+            return
+          }
 
-          await safeWriteSSE({
-            type: 'complete',
-            result: finalReportText,
-          })
-          return
-        }
+          const verifyAndReportSingleBug = async (candidate: string) => {
+            const bugPrompt = `You previously completed a PR review.
 
-        throw error
-      }
+  Task (MANDATORY):
+  - You are handling ONE bug candidate (below).
+  - You MUST attempt to verify it via sandbox_exec.
+  - The system handles user approval automatically when you call the tool. Do NOT ask for confirmation in text. Just call the tool.
+  - Run EXACTLY ONE sandbox_exec command for this bug. Do NOT loop or retry the same command.
+  - After sandbox_exec (or if denied / infeasible), call report_bug EXACTLY ONCE for this bug.
+  - Set status VERIFIED only if sandbox output demonstrates the bug; otherwise UNVERIFIED with the reason.
+  - Do NOT call submit_summary.
+  - Do NOT output long narrative text. Prefer tool calls only.
+  - Even if multiple bugs could share the same command, DO NOT reuse one sandbox_exec run for multiple bug cards. This bug needs its own sandbox_exec attempt and its own report_bug card.
+  - Ignore any planning/checklist content in the context summary.
+  - Use sandbox_exec ONLY for a minimal reproduction or verification command (do not use it for ls/cat/git diff or context gathering).
 
-      if (!result) {
-        throw new Error('Review agent did not return a result.')
-      }
+  Bug candidate:
+  ${candidate}
 
-      if (!submittedReport) {
-        const steps = (result as unknown as { steps?: unknown }).steps
-        if (Array.isArray(steps)) {
-          for (const step of steps) {
-            const toolCalls = normalizeToolCalls(
-              (step as { toolCalls?: unknown }).toolCalls
+  Context summary:
+  ${sanitizedReportText}
+  `
+
+            await reviewAgent(
+              bugPrompt,
+              model,
+              Math.min(maxSteps, 6),
+              {
+                sandbox_exec: createSingleUseSandboxExecTool(tools.sandbox_exec),
+                report_bug: tools.report_bug,
+              },
+              undefined,
+              streamBugStep
             )
-            const toolResults = normalizeToolResults(
-              (step as { toolResults?: unknown }).toolResults
-            )
-            const reportValue = extractSubmitSummaryReport(toolCalls, toolResults)
-            if (reportValue) {
-              submittedReport = reportValue
-              break
+          }
+
+          try {
+            if (candidates.length > 0) {
+              for (const candidate of candidates) {
+                const trimmed = candidate.trim()
+                if (!trimmed) continue
+                await safeWriteSSE({
+                  type: 'status',
+                  message: `Verifying bug in sandbox: ${trimmed}`,
+                })
+                await verifyAndReportSingleBug(trimmed)
+              }
+            } else {
+              const fallbackPrompt = `You previously completed a PR review.
+
+  Task (MANDATORY):
+  - Extract each distinct bug mentioned in the summary below.
+  - For EACH bug: attempt ONE sandbox_exec verification, then call report_bug EXACTLY ONCE.
+  - Do NOT call submit_summary.
+  - Do NOT output long narrative text. Prefer tool calls only.
+  - Ignore any planning/checklist content in the summary.
+  - Use sandbox_exec only for minimal verification commands; do not use it for ls/cat/git diff or context gathering.
+
+  Summary to extract from:
+  ${sanitizedReportText}
+  `
+
+              await reviewAgent(
+                fallbackPrompt,
+                model,
+                Math.min(maxSteps, 10),
+                { sandbox_exec: tools.sandbox_exec, report_bug: tools.report_bug },
+                undefined,
+                streamBugStep
+              )
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            logger.warn(`Bug card extraction pass failed: ${message}`)
+            await safeWriteSSE({
+              type: 'status',
+              message: `Bug card extraction pass failed: ${message}`,
+            })
+          }
+
+          if (!bugCardsEmitted) {
+            if (candidates.length > 0) {
+              await safeWriteSSE({
+                type: 'status',
+                message: 'Auto-extracting bug cards from summary (heuristic fallback)...',
+              })
+            } else {
+              await safeWriteSSE({
+                type: 'status',
+                message:
+                  'No structured bug cards were emitted and no bug list could be extracted from the summary.',
+              })
+            }
+
+            for (const candidate of candidates) {
+              const toolCallId = `bug-${crypto.randomUUID()}`
+              const title = candidate.length > 90 ? `${candidate.slice(0, 89)}…` : candidate
+              const args = {
+                title,
+                description: `**Auto-extracted from review summary (fallback).**\n\n${candidate}`,
+                status: 'UNVERIFIED',
+                severity: inferSeverity(candidate),
+                reproduction:
+                  'Run sandbox_exec with a minimal reproduction command to confirm (requires user approval).',
+                evidence: candidate,
+              }
+
+              const ok = await safeWriteSSE({
+                type: 'step',
+                step: {
+                  toolCalls: [
+                    {
+                      type: 'tool-call',
+                      toolCallId,
+                      toolName: 'report_bug',
+                      args,
+                    },
+                  ],
+                  toolResults: [
+                    {
+                      type: 'tool-result',
+                      toolCallId,
+                      toolName: 'report_bug',
+                      result: 'Bug recorded.',
+                    },
+                  ],
+                  text: '',
+                  usage: undefined,
+                },
+              })
+
+              if (!ok) {
+                throw new Error('Client disconnected.')
+              }
             }
           }
         }
-      }
 
-      let finalReportText =
-        submittedReport ?? stripProviderJsonFromText(result.text ?? '')
-      if (finalReportText.trim() && isMetaSummary(finalReportText)) {
-        finalReportText = await runRecoverySummary(
-          'model produced a non-actionable meta summary.',
-          resolveMostRepeatedSandboxExecKey() ?? undefined
-        )
-      }
-      if (!finalReportText.trim()) {
-        finalReportText = await runRecoverySummary(
-          'model did not produce submit_summary or any final text.',
-          resolveMostRepeatedSandboxExecKey() ?? undefined
-        )
-      }
+        const runRecoverySummary = async (reason: string, evidenceKey?: string) => {
+          const evidence = evidenceKey
+            ? sandboxExecEvidenceByKey.get(evidenceKey)
+            : undefined
+          const evidenceSection = evidence
+            ? `Sandbox evidence (most recent successful run):\n\n${evidence}\n`
+            : 'Sandbox evidence was not captured.\n'
 
-      await emitBugCardsIfNeeded(finalReportText, sawReportBug)
+          const fileSections = filteredFiles
+            .map((file) => {
+              const content =
+                file.fileContent.length > 4000
+                  ? `${file.fileContent.slice(0, 4000)}\n\n... (truncated)`
+                  : file.fileContent
+              return `File: ${file.fileName}\n\n\`\`\`\n${content}\n\`\`\`\n`
+            })
+            .join('\n')
 
-      // Final result
-      await safeWriteSSE({
-        type: 'complete',
-        result: finalReportText,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const cause =
-        error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined
-      const causeMessage =
-        cause instanceof Error ? cause.message : cause ? String(cause) : undefined
-      const fullMessage = [
-        message,
-        causeMessage ? `Cause: ${causeMessage}` : null,
-        effectiveBaseUrl ? `Base URL: ${effectiveBaseUrl}` : null,
-        modelString ? `Model: ${modelString}` : null,
-      ]
-        .filter(Boolean)
-        .join(' | ')
+          const recoveryPrompt = `You are completing a pull request review.
 
-      logger.error(`Review failed: ${fullMessage}`)
-      if (error instanceof Error && error.stack) {
-        logger.debug(error.stack)
-      }
-      await safeWriteSSE({
-        type: 'error',
-        message: fullMessage,
-      })
-    } finally {
-      stopHeartbeat()
-      if (clients) {
+  Reason: ${reason}
+
+  Tools are NOT available now.
+
+  ${evidenceSection}
+
+  ${fileSections}
+
+  Task:
+  - Write a concise, actionable review summary in ${reviewLanguage}.
+  - Mention sandbox evidence (if present) and explain impact.
+  - Do not output raw JSON or tool-call blobs.
+  `
+
+          const recovery = await generateText({
+            model,
+            prompt: recoveryPrompt,
+            maxSteps: 1,
+          })
+          const recoveredText = stripProviderJsonFromText(recovery.text ?? '').trim()
+          const finalReportText =
+            recoveredText ||
+            `Review completed, but the model did not produce a summary. (${reason})`
+
+          try {
+            const posted = await platformProvider.postThreadComment({
+              comment: finalReportText,
+            })
+            const toolCallId = `submit-${crypto.randomUUID()}`
+            await safeWriteSSE({
+              type: 'step',
+              step: {
+                toolCalls: [
+                  {
+                    type: 'tool-call',
+                    toolCallId,
+                    toolName: 'submit_summary',
+                    args: { report: finalReportText },
+                  },
+                ],
+                toolResults: [
+                  {
+                    type: 'tool-result',
+                    toolCallId,
+                    toolName: 'submit_summary',
+                    result: posted
+                      ? `Report posted successfully: ${posted}`
+                      : 'Report posted.',
+                  },
+                ],
+                text: '',
+                usage: undefined,
+              },
+            })
+          } catch (postError) {
+            const message =
+              postError instanceof Error ? postError.message : String(postError)
+            logger.warn(`Failed to post recovery report: ${message}`)
+            await safeWriteSSE({
+              type: 'status',
+              message: `Failed to post recovery report: ${message}`,
+            })
+          }
+
+          return finalReportText
+        }
+
+        const resolveMostRepeatedSandboxExecKey = (): string | null => {
+          let bestKey: string | null = null
+          let bestCount = 0
+
+          for (const [key, count] of sandboxExecCounts) {
+            if (count > bestCount) {
+              bestCount = count
+              bestKey = key
+            }
+          }
+
+          return bestKey
+        }
+
+        let result: Awaited<ReturnType<typeof reviewAgent>> | null = null
         try {
-          await clients.closeClients()
+          result = await reviewAgent(
+            prompt,
+            model,
+            maxSteps,
+            tools,
+            () => {
+              // Summary submitted callback
+            },
+            async (step) => {
+              const toolCalls = normalizeToolCalls(step.toolCalls)
+              const toolResults = normalizeToolResults(step.toolResults)
+
+              const sandboxKeysInStep: string[] = []
+              let sawNonSandboxToolCall = false
+
+              for (const call of toolCalls) {
+                if (typeof call.toolName !== 'string') continue
+                const normalizedName = normalizeToolNameKey(call.toolName)
+                if (normalizedName !== 'sandbox_exec') {
+                  sawNonSandboxToolCall = true
+                  continue
+                }
+                if (typeof call.toolCallId !== 'string') continue
+
+                const args = isRecord(call.args) ? call.args : {}
+                const command = typeof args.command === 'string' ? args.command : ''
+                const cwd = typeof args.cwd === 'string' ? args.cwd : '.'
+                const timeout =
+                  typeof args.timeout === 'number'
+                    ? String(args.timeout)
+                    : 'unknown-timeout'
+                const key = `${cwd}\n${timeout}\n${command}`
+
+                sandboxExecKeyByToolCallId.set(call.toolCallId, key)
+                sandboxExecCounts.set(key, (sandboxExecCounts.get(key) ?? 0) + 1)
+                sandboxKeysInStep.push(key)
+              }
+
+              if (sandboxKeysInStep.length > 0 && !sawNonSandboxToolCall) {
+                const signature = sandboxKeysInStep.join('\n---\n')
+                if (signature === sandboxOnlySignature) {
+                  sandboxOnlyRepeats += 1
+                } else {
+                  sandboxOnlySignature = signature
+                  sandboxOnlyRepeats = 1
+                }
+
+                if (
+                  !sandboxLoopKey &&
+                  sandboxOnlyRepeats >= sandboxExecRepeatLimit &&
+                  !submittedReport
+                ) {
+                  sandboxLoopKey = sandboxKeysInStep[0] ?? signature
+                  await safeWriteSSE({
+                    type: 'status',
+                    message:
+                      'Detected repeated sandbox_exec-only steps with the same command(s). Aborting the stuck run and generating a recovery summary...',
+                  })
+                  abortController.abort(
+                    new Error('sandbox_exec loop detected (repeated sandbox-only steps)')
+                  )
+                }
+              } else {
+                sandboxOnlySignature = null
+                sandboxOnlyRepeats = 0
+              }
+
+              for (const toolResult of toolResults) {
+                if (typeof toolResult.toolCallId !== 'string') continue
+                const key = sandboxExecKeyByToolCallId.get(toolResult.toolCallId)
+                if (!key) continue
+                if (sandboxExecEvidenceByKey.has(key)) continue
+                if (typeof toolResult.result !== 'string') continue
+                if (toolResult.result.startsWith('Duplicate sandbox_exec prevented'))
+                  continue
+                sandboxExecEvidenceByKey.set(key, toolResult.result)
+              }
+
+              if (!sawReportBug) {
+                sawReportBug = toolCalls.some(
+                  (call) =>
+                    typeof call.toolName === 'string' &&
+                    normalizeToolNameKey(call.toolName) === 'report_bug'
+                )
+              }
+
+              const reportValue = extractSubmitSummaryReport(toolCalls, toolResults)
+              if (reportValue) submittedReport = reportValue
+
+              // Stream step
+              const ok = await safeWriteSSE({
+                type: 'step',
+                step: {
+                  toolCalls,
+                  toolResults,
+                  text:
+                    typeof step.text === 'string'
+                      ? stripProviderJsonFromText(step.text)
+                      : '',
+                  usage: step.usage,
+                },
+              })
+              if (!ok) {
+                // Stop work if the client is gone; prevents throwing and tearing down the response.
+                throw new Error('Client disconnected.')
+              }
+            },
+            abortController.signal
+          )
         } catch (error) {
-          logger.warn(`Failed to close MCP clients: ${String(error)}`)
+          if (sandboxLoopKey && abortController.signal.aborted) {
+            const finalReportText = await runRecoverySummary(
+              'sandbox_exec loop detected during review execution.',
+              sandboxLoopKey
+            )
+
+            await emitBugCardsIfNeeded(finalReportText, false)
+
+            await safeWriteSSE({
+              type: 'complete',
+              result: finalReportText,
+            })
+            return
+          }
+
+          throw error
+        }
+
+        if (!result) {
+          throw new Error('Review agent did not return a result.')
+        }
+
+        if (!submittedReport) {
+          const steps = (result as unknown as { steps?: unknown }).steps
+          if (Array.isArray(steps)) {
+            for (const step of steps) {
+              const toolCalls = normalizeToolCalls(
+                (step as { toolCalls?: unknown }).toolCalls
+              )
+              const toolResults = normalizeToolResults(
+                (step as { toolResults?: unknown }).toolResults
+              )
+              const reportValue = extractSubmitSummaryReport(toolCalls, toolResults)
+              if (reportValue) {
+                submittedReport = reportValue
+                break
+              }
+            }
+          }
+        }
+
+        let finalReportText =
+          submittedReport ?? stripProviderJsonFromText(result.text ?? '')
+        if (finalReportText.trim() && isMetaSummary(finalReportText)) {
+          finalReportText = await runRecoverySummary(
+            'model produced a non-actionable meta summary.',
+            resolveMostRepeatedSandboxExecKey() ?? undefined
+          )
+        }
+        if (!finalReportText.trim()) {
+          finalReportText = await runRecoverySummary(
+            'model did not produce submit_summary or any final text.',
+            resolveMostRepeatedSandboxExecKey() ?? undefined
+          )
+        }
+
+        await emitBugCardsIfNeeded(finalReportText, sawReportBug)
+
+        // Final result
+        await safeWriteSSE({
+          type: 'complete',
+          result: finalReportText,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const cause =
+          error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined
+        const causeMessage =
+          cause instanceof Error ? cause.message : cause ? String(cause) : undefined
+        const fullMessage = [
+          message,
+          causeMessage ? `Cause: ${causeMessage}` : null,
+          effectiveBaseUrl ? `Base URL: ${effectiveBaseUrl}` : null,
+          modelString ? `Model: ${modelString}` : null,
+        ]
+          .filter(Boolean)
+          .join(' | ')
+
+        logger.error(`Review failed: ${fullMessage}`)
+        if (error instanceof Error && error.stack) {
+          logger.debug(error.stack)
+        }
+        await safeWriteSSE({
+          type: 'error',
+          message: fullMessage,
+        })
+      } finally {
+        stopHeartbeat()
+        if (clients) {
+          try {
+            await clients.closeClients()
+          } catch (error) {
+            logger.warn(`Failed to close MCP clients: ${String(error)}`)
+          }
         }
       }
     }
+
+    if (workspaceRoot) {
+      return withWorkspaceRoot(workspaceRoot, runReview)
+    }
+
+    return runReview()
   })
 })
 

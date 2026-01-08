@@ -7,6 +7,7 @@ export interface ConfigSettings {
   apiKey: string
   environment: string
   baseUrl: string
+  localRepoPath: string
 }
 
 type EffectiveLlmConfig = {
@@ -15,6 +16,20 @@ type EffectiveLlmConfig = {
   apiKeyMasked: string
   apiKeySource: 'env' | 'file' | 'missing'
   hasApiKey: boolean
+}
+
+type LocalRepoEntry = {
+  name: string
+  path: string
+}
+
+type LocalRepoResponse = {
+  repos: LocalRepoEntry[]
+  truncated?: boolean
+  roots?: string[]
+  maxDepth?: number
+  maxResults?: number
+  current?: string
 }
 
 interface ConfigModalProps {
@@ -35,10 +50,25 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const [activeTab, setActiveTab] = useState('general')
   const [localConfig, setLocalConfig] = useState(config)
   const [effective, setEffective] = useState<EffectiveLlmConfig | null>(null)
+  const [localRepos, setLocalRepos] = useState<LocalRepoEntry[]>([])
+  const [repoMeta, setRepoMeta] = useState<{
+    current?: string
+    truncated?: boolean
+    roots?: string[]
+    maxDepth?: number
+    maxResults?: number
+  } | null>(null)
+  const [repoStatus, setRepoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle'
+  )
+  const [repoError, setRepoError] = useState<string | null>(null)
 
   useEffect(() => {
     setLocalConfig(config)
   }, [config])
+
+  const effectiveRepoPath =
+    localConfig.environment === 'local' ? localConfig.localRepoPath.trim() : ''
 
   useEffect(() => {
     if (!isOpen) return
@@ -46,7 +76,11 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
     const fetchEffective = async () => {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/llm/effective`)
+        const effectiveUrl = new URL('/api/llm/effective', apiBaseUrl)
+        if (effectiveRepoPath) {
+          effectiveUrl.searchParams.set('repoPath', effectiveRepoPath)
+        }
+        const response = await fetch(effectiveUrl.toString())
         if (!response.ok) throw new Error('无法获取当前生效的 API 配置')
         const data = (await response.json()) as EffectiveLlmConfig
         if (!cancelled) setEffective(data)
@@ -68,7 +102,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, isOpen])
+  }, [apiBaseUrl, effectiveRepoPath, isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -80,6 +114,47 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [isOpen, onClose])
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'environment' || localConfig.environment !== 'local') {
+      return
+    }
+    let cancelled = false
+
+    const fetchRepos = async () => {
+      setRepoStatus('loading')
+      setRepoError(null)
+      try {
+        const repoUrl = new URL('/api/local/repos', apiBaseUrl)
+        const response = await fetch(repoUrl.toString())
+        if (!response.ok) throw new Error('无法扫描本地 Git 仓库')
+        const data = (await response.json()) as LocalRepoResponse
+        if (cancelled) return
+        setLocalRepos(data.repos ?? [])
+        setRepoMeta({
+          current: data.current || undefined,
+          truncated: data.truncated,
+          roots: data.roots,
+          maxDepth: data.maxDepth,
+          maxResults: data.maxResults,
+        })
+        setRepoStatus('ready')
+      } catch (error) {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : '无法扫描本地 Git 仓库'
+        setRepoError(message)
+        setRepoStatus('error')
+        setLocalRepos([])
+        setRepoMeta(null)
+      }
+    }
+
+    void fetchRepos()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, apiBaseUrl, isOpen, localConfig.environment])
 
   const handleChange = (key: string, value: string) => {
     const newConfig = { ...localConfig, [key]: value }
@@ -302,27 +377,93 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
               )}
 
               {activeTab === 'environment' && (
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <label className="settings-label" htmlFor="settings-environment">
-                      环境
-                    </label>
-                    <p className="settings-description">选择执行环境。</p>
+                <>
+                  <div className="settings-row">
+                    <div className="settings-info">
+                      <label className="settings-label" htmlFor="settings-environment">
+                        环境
+                      </label>
+                      <p className="settings-description">选择执行环境。</p>
+                    </div>
+                    <div className="settings-control">
+                      <select
+                        id="settings-environment"
+                        value={localConfig.environment}
+                        onChange={(e) => handleChange('environment', e.target.value)}
+                        className="settings-select"
+                      >
+                        <option value="local">本地</option>
+                        <option value="production">生产</option>
+                        <option value="staging">预发布</option>
+                        <option value="development">开发</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="settings-control">
-                    <select
-                      id="settings-environment"
-                      value={localConfig.environment}
-                      onChange={(e) => handleChange('environment', e.target.value)}
-                      className="settings-select"
-                    >
-                      <option value="local">本地</option>
-                      <option value="production">生产</option>
-                      <option value="staging">预发布</option>
-                      <option value="development">开发</option>
-                    </select>
-                  </div>
-                </div>
+
+                  {localConfig.environment === 'local' && (
+                    <div className="settings-row">
+                      <div className="settings-info">
+                        <label className="settings-label" htmlFor="settings-local-repo">
+                          本地仓库
+                        </label>
+                        <p className="settings-description">
+                          选择需要审查的 Git 仓库。
+                        </p>
+                        {repoMeta?.roots && repoMeta.roots.length > 0 ? (
+                          <p className="settings-description">
+                            扫描范围：{repoMeta.roots.join(', ')}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="settings-control">
+                        <select
+                          id="settings-local-repo"
+                          value={localConfig.localRepoPath}
+                          onChange={(e) => handleChange('localRepoPath', e.target.value)}
+                          className="settings-select"
+                          disabled={repoStatus === 'loading'}
+                        >
+                          <option value="">
+                            {repoMeta?.current
+                              ? `当前仓库 (${repoMeta.current})`
+                              : '当前仓库'}
+                          </option>
+                          {localConfig.localRepoPath &&
+                          !localRepos.some(
+                            (repo) => repo.path === localConfig.localRepoPath
+                          ) ? (
+                            <option value={localConfig.localRepoPath}>
+                              自定义 · {localConfig.localRepoPath}
+                            </option>
+                          ) : null}
+                          {localRepos.map((repo) => (
+                            <option key={repo.path} value={repo.path}>
+                              {repo.name} · {repo.path}
+                            </option>
+                          ))}
+                        </select>
+
+                        {repoStatus === 'loading' ? (
+                          <div className="settings-hint">正在扫描本地仓库…</div>
+                        ) : null}
+                        {repoStatus === 'error' && repoError ? (
+                          <div className="settings-hint settings-hint--error">
+                            {repoError}
+                          </div>
+                        ) : null}
+                        {repoStatus === 'ready' && localRepos.length === 0 ? (
+                          <div className="settings-hint">未找到 Git 仓库。</div>
+                        ) : null}
+                        {repoStatus === 'ready' && repoMeta?.truncated ? (
+                          <div className="settings-hint">
+                            列表已截断，仅显示前{' '}
+                            {repoMeta.maxResults ?? localRepos.length} 个仓库。
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {activeTab === 'advanced' && (

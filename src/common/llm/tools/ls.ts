@@ -3,6 +3,7 @@ import path from 'node:path'
 import { tool } from 'ai'
 import picomatch from 'picomatch'
 import { z } from 'zod'
+import { resolveWorkspacePath } from '../../git/getChangedFilesNames'
 
 // 默认忽略的噪点目录和文件，防止上下文爆炸
 const DEFAULT_IGNORES = [
@@ -51,6 +52,7 @@ export const lsTool = tool({
   }),
   execute: async ({ path: dirPath, recursive, includeHidden, ignore = [], skip = 0 }) => {
     try {
+      const resolvedPath = resolveWorkspacePath(dirPath)
       // 1. 准备过滤规则
       const ignorePatterns = [...DEFAULT_IGNORES, ...ignore]
       const isIgnored = picomatch(ignorePatterns)
@@ -67,8 +69,8 @@ export const lsTool = tool({
 
       // 3. 执行递归列表
       await listDirectory({
-        currentPath: dirPath,
-        basePath: dirPath,
+        currentPath: resolvedPath,
+        basePath: resolvedPath,
         recursive,
         includeHidden,
         isIgnored,

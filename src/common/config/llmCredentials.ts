@@ -67,27 +67,46 @@ const parseCredentialsJson = (raw: string): LlmCredentials => {
   }
 }
 
-let cachedCredentialsPromise: Promise<LlmCredentials> | null = null
+const cachedCredentialsByRoot = new Map<string, Promise<LlmCredentials>>()
+
+const buildCacheKey = (gitRoot?: string): string => {
+  if (process.env.COSTRICT_LLM_CREDENTIALS_PATH) {
+    return `env:${process.env.COSTRICT_LLM_CREDENTIALS_PATH}`
+  }
+  return gitRoot ? `git:${gitRoot}` : 'nogit'
+}
+
+const resolveCredentialsCacheKey = async (): Promise<string> => {
+  try {
+    const gitRoot = await getGitRoot()
+    return buildCacheKey(gitRoot)
+  } catch {
+    return buildCacheKey()
+  }
+}
 
 export const loadLlmCredentials = async (): Promise<LlmCredentials> => {
-  if (!cachedCredentialsPromise) {
-    cachedCredentialsPromise = (async () => {
-      const paths = await getDefaultCredentialPaths()
-      for (const candidate of paths) {
-        if (!candidate || !existsSync(candidate)) continue
-        try {
-          const raw = await readFile(candidate, 'utf8')
-          const creds = parseCredentialsJson(raw)
-          return creds
-        } catch {
-          // ignore invalid config and continue
-        }
-      }
-      return {}
-    })()
-  }
+  const cacheKey = await resolveCredentialsCacheKey()
+  const cached = cachedCredentialsByRoot.get(cacheKey)
+  if (cached) return cached
 
-  return cachedCredentialsPromise
+  const promise = (async () => {
+    const paths = await getDefaultCredentialPaths()
+    for (const candidate of paths) {
+      if (!candidate || !existsSync(candidate)) continue
+      try {
+        const raw = await readFile(candidate, 'utf8')
+        const creds = parseCredentialsJson(raw)
+        return creds
+      } catch {
+        // ignore invalid config and continue
+      }
+    }
+    return {}
+  })()
+
+  cachedCredentialsByRoot.set(cacheKey, promise)
+  return promise
 }
 
 export const resolveLlmCredentials = async (): Promise<LlmCredentials> => {
@@ -112,5 +131,5 @@ export const writeProjectCredentials = async (
   await writeFile(configPath, `${JSON.stringify(payload, null, 2)}\n`, {
     mode: 0o600,
   })
-  cachedCredentialsPromise = null
+  cachedCredentialsByRoot.delete(buildCacheKey(gitRoot))
 }

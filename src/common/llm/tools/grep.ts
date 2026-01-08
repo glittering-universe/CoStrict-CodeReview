@@ -3,6 +3,7 @@ import path from 'node:path'
 import { tool } from 'ai'
 import { glob } from 'tinyglobby'
 import { z } from 'zod'
+import { resolveWorkspacePath } from '../../git/getChangedFilesNames'
 
 export const grepTool = tool({
   description:
@@ -31,8 +32,9 @@ export const grepTool = tool({
     maxResults,
   }) => {
     try {
+      const resolvedSearchPath = resolveWorkspacePath(searchPath)
       const files = await glob(globPattern, {
-        cwd: searchPath,
+        cwd: resolvedSearchPath,
         onlyFiles: true,
         dot: false,
       })
@@ -46,7 +48,7 @@ export const grepTool = tool({
         if (resultCount >= maxResults) break
 
         try {
-          const fullPath = path.resolve(searchPath, file)
+          const fullPath = path.resolve(resolvedSearchPath, file)
           const content = await fs.readFile(fullPath, 'utf-8')
           const lines = content.split('\n')
 
