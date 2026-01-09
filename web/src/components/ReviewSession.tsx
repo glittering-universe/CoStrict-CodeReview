@@ -17,6 +17,7 @@ interface ReviewSessionProps {
   logsEndRef: RefObject<HTMLDivElement | null>
   autoApproveSandbox: boolean
   setAutoApproveSandbox: (value: boolean) => void
+  postGitHubComment: (sessionId: string) => void
 }
 
 const clamp = (value: number, min: number, max: number) =>
@@ -44,6 +45,7 @@ export function ReviewSession({
   logsEndRef,
   autoApproveSandbox,
   setAutoApproveSandbox,
+  postGitHubComment,
 }: ReviewSessionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const mouseRef = useRef({ x: 0.52, y: 0.54 })
@@ -185,6 +187,13 @@ export function ReviewSession({
   const modelName = activeSession?.modelString ?? '未开始'
   const subagentsRunning = Boolean(activeSession?.subagentsRunning)
   const subagentsTotal = activeSession?.subagentsTotal
+  const githubTarget =
+    activeSession?.target?.kind === 'github' ? activeSession.target : null
+  const githubCommentStatus = activeSession?.githubCommentStatus ?? 'idle'
+  const githubCommentUrl = activeSession?.githubCommentUrl
+  const githubCommentError = activeSession?.githubCommentError
+  const githubPosting =
+    githubCommentStatus === 'auth' || githubCommentStatus === 'posting'
 
   const shellMotion = {
     initial: { opacity: 0.1, y: 26, scale: 0.98 },
@@ -348,6 +357,51 @@ export function ReviewSession({
               <Icon icon="lucide:sparkles" width={16} height={16} />
               审查完成
             </div>
+            {githubTarget ? (
+              <div className="final-report-actions">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => postGitHubComment(activeSession.id)}
+                  disabled={githubPosting}
+                >
+                  {githubPosting ? (
+                    <Icon
+                      icon="lucide:loader-circle"
+                      width={16}
+                      height={16}
+                      className="subagent-preflight-icon"
+                    />
+                  ) : (
+                    <Icon icon="lucide:github" width={16} height={16} />
+                  )}
+                  {githubCommentStatus === 'done'
+                    ? 'Comment posted'
+                    : githubCommentStatus === 'error'
+                      ? 'Retry GitHub comment'
+                      : githubCommentStatus === 'posting'
+                        ? 'Posting...'
+                        : githubCommentStatus === 'auth'
+                          ? 'Waiting for login...'
+                          : 'Login & comment'}
+                </button>
+                {githubCommentUrl ? (
+                  <a
+                    className="final-report-link"
+                    href={githubCommentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on GitHub
+                  </a>
+                ) : null}
+                {githubCommentError ? (
+                  <div className="final-report-error" role="alert">
+                    {githubCommentError}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <ReactMarkdown>{activeSession.finalResult}</ReactMarkdown>
           </motion.div>
         )}

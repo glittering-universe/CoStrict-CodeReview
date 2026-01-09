@@ -73,4 +73,8 @@ export type ReviewSession = {
   completedAt?: number
   subagentsRunning?: boolean
   subagentsTotal?: number
+  target?: { kind: 'local'; repoPath?: string } | { kind: 'github'; prUrl: string }
+  githubCommentStatus?: 'idle' | 'auth' | 'posting' | 'done' | 'error'
+  githubCommentUrl?: string
+  githubCommentError?: string
 }

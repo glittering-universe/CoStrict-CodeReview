@@ -56,6 +56,7 @@ function App() {
       baseUrl: '',
       environment: 'local',
       localRepoPath: '',
+      githubPrUrl: '',
     }
     if (typeof window === 'undefined') return defaults
     const stored = window.localStorage.getItem(CONFIG_STORAGE_KEY)
@@ -69,10 +70,11 @@ function App() {
           typeof parsed.localRepoPath === 'string'
             ? parsed.localRepoPath
             : defaults.localRepoPath,
-        environment:
-          typeof parsed.environment === 'string'
-            ? parsed.environment
-            : defaults.environment,
+        githubPrUrl:
+          typeof parsed.githubPrUrl === 'string'
+            ? parsed.githubPrUrl
+            : defaults.githubPrUrl,
+        environment: parsed.environment === 'github' ? 'github' : defaults.environment,
       }
     } catch {
       return defaults
@@ -88,6 +90,15 @@ function App() {
   const [expandAll, setExpandAll] = useState(false)
 
   const logsEndRef = useRef<HTMLDivElement>(null)
+  const [githubAccessToken, setGithubAccessToken] = useState<string | null>(null)
+  const githubAuthInFlight = useRef<Promise<string> | null>(null)
+  const apiOrigin = useMemo(() => {
+    try {
+      return new URL(API_BASE_URL).origin
+    } catch {
+      return API_BASE_URL
+    }
+  }, [])
 
   useEffect(() => {
     autoApproveSandboxRef.current = autoApproveSandbox
@@ -155,6 +166,223 @@ function App() {
     setView('review')
   }
 
+  const ensureGitHubAccessToken = async (): Promise<string> => {
+    if (githubAccessToken) return githubAccessToken
+    if (githubAuthInFlight.current) return githubAuthInFlight.current
+    if (typeof window === 'undefined') {
+      throw new Error('GitHub OAuth requires a browser window.')
+    }
+
+    const promise = new Promise<string>((resolve, reject) => {
+      const oauthUrl = new URL('/api/github/oauth/start', API_BASE_URL)
+      oauthUrl.searchParams.set('origin', window.location.origin)
+
+      const popup = window.open(
+        oauthUrl.toString(),
+        'costrict-github-oauth',
+        'width=640,height=760'
+      )
+
+      if (!popup) {
+        reject(new Error('Popup blocked. Please allow popups and try again.'))
+        return
+      }
+
+      let settled = false
+      const timeout = window.setTimeout(() => {
+        finishWithError(new Error('GitHub login timed out.'))
+      }, 5 * 60_000)
+
+      const poll = window.setInterval(() => {
+        if (popup.closed) {
+          finishWithError(new Error('GitHub login window closed.'))
+        }
+      }, 500)
+
+      const cleanup = () => {
+        window.clearTimeout(timeout)
+        window.clearInterval(poll)
+        window.removeEventListener('message', onMessage)
+        try {
+          popup.close()
+        } catch {
+          // ignore
+        }
+      }
+
+      const finishWithError = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+
+      const finishWithToken = (token: string) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(token)
+      }
+
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== apiOrigin) return
+        if (!isRecord(event.data)) return
+        const type = event.data.type
+        if (type === 'github_oauth_token') {
+          const token = event.data.token
+          if (typeof token !== 'string' || !token.trim()) return
+          finishWithToken(token.trim())
+          return
+        }
+        if (type === 'github_oauth_error') {
+          const message = event.data.message
+          const errorMessage =
+            typeof message === 'string' && message.trim()
+              ? message.trim()
+              : 'GitHub login failed.'
+          finishWithError(new Error(errorMessage))
+        }
+      }
+
+      window.addEventListener('message', onMessage)
+    })
+
+    githubAuthInFlight.current = promise
+
+    try {
+      const token = await promise
+      setGithubAccessToken(token)
+      return token
+    } finally {
+      githubAuthInFlight.current = null
+    }
+  }
+
+  const postGitHubComment = async (sessionId: string) => {
+    const session = sessionsById[sessionId]
+    if (!session) return
+    if (!session.finalResult) return
+    if (session.target?.kind !== 'github') return
+
+    const prUrl = session.target.prUrl
+    const comment = session.finalResult
+
+    setSessionsById((prev) => {
+      const current = prev[sessionId]
+      if (!current) return prev
+      return {
+        ...prev,
+        [sessionId]: {
+          ...current,
+          githubCommentStatus: 'auth',
+          githubCommentError: undefined,
+        },
+      }
+    })
+
+    try {
+      let token: string | null = null
+      try {
+        token = await ensureGitHubAccessToken()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setSessionsById((prev) => {
+          const current = prev[sessionId]
+          if (!current) return prev
+          return {
+            ...prev,
+            [sessionId]: {
+              ...current,
+              logs: [
+                ...current.logs,
+                {
+                  type: 'status',
+                  message: `GitHub login unavailable (${message}). Trying server GitHub auth (GITHUB_TOKEN/gh)...`,
+                  timestamp: Date.now(),
+                },
+              ],
+            },
+          }
+        })
+      }
+
+      setSessionsById((prev) => {
+        const current = prev[sessionId]
+        if (!current) return prev
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            githubCommentStatus: 'posting',
+          },
+        }
+      })
+
+      const response = await fetch(`${API_BASE_URL}/api/github/pr/comment`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          githubPrUrl: prUrl,
+          comment,
+        }),
+      })
+
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => '')
+        throw new Error(
+          `GitHub comment failed (${response.status})${bodyText ? `: ${bodyText}` : ''}`
+        )
+      }
+
+      const data = (await response.json().catch(() => null)) as null | {
+        url?: unknown
+        message?: unknown
+      }
+      const commentUrl = data && typeof data.url === 'string' ? data.url : ''
+      if (!commentUrl) {
+        const message =
+          data && typeof data.message === 'string'
+            ? data.message
+            : 'Missing comment URL from server.'
+        throw new Error(message)
+      }
+
+      setSessionsById((prev) => {
+        const current = prev[sessionId]
+        if (!current) return prev
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            githubCommentStatus: 'done',
+            githubCommentUrl: commentUrl,
+            githubCommentError: undefined,
+          },
+        }
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setSessionsById((prev) => {
+        const current = prev[sessionId]
+        if (!current) return prev
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            githubCommentStatus: 'error',
+            githubCommentError: message,
+          },
+        }
+      })
+    }
+  }
+
   const startReview = async () => {
     if (!modelString) return
 
@@ -175,6 +403,16 @@ function App() {
       finalResult: null,
       isReviewing: true,
       startTime: Date.now(),
+      target:
+        config.environment === 'github' && config.githubPrUrl.trim()
+          ? { kind: 'github', prUrl: config.githubPrUrl.trim() }
+          : {
+              kind: 'local',
+              repoPath:
+                config.environment === 'local' && config.localRepoPath.trim()
+                  ? config.localRepoPath.trim()
+                  : undefined,
+            },
     }
     setSessionsById((prev) => ({ ...prev, [newSession.id]: newSession }))
     activeSessionIdRef.current = newSession.id
@@ -183,6 +421,59 @@ function App() {
     setShowConfig(false)
 
     try {
+      if (config.environment === 'github' && !config.githubPrUrl.trim()) {
+        throw new Error('Missing GitHub PR URL. Configure a PR in Settings.')
+      }
+
+      let githubTokenForReview: string | undefined
+      if (config.environment === 'github') {
+        if (!githubAccessToken) {
+          setSessionsById((prev) => {
+            const current = prev[newSession.id]
+            if (!current) return prev
+            return {
+              ...prev,
+              [newSession.id]: {
+                ...current,
+                logs: [
+                  ...current.logs,
+                  {
+                    type: 'status',
+                    message:
+                      'Authenticating with GitHub to avoid API rate limits (popup login)...',
+                    timestamp: Date.now(),
+                  },
+                ],
+              },
+            }
+          })
+        }
+        try {
+          githubTokenForReview = await ensureGitHubAccessToken()
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          setSessionsById((prev) => {
+            const current = prev[newSession.id]
+            if (!current) return prev
+            return {
+              ...prev,
+              [newSession.id]: {
+                ...current,
+                logs: [
+                  ...current.logs,
+                  {
+                    type: 'status',
+                    message: `GitHub authentication skipped: ${message}`,
+                    timestamp: Date.now(),
+                  },
+                ],
+              },
+            }
+          })
+          githubTokenForReview = undefined
+        }
+      }
+
       let receivedTerminalEvent = false
       let sessionLogCount = 0
       const response = await fetch(`${API_BASE_URL}/api/review`, {
@@ -198,6 +489,11 @@ function App() {
             config.environment === 'local' && config.localRepoPath.trim()
               ? config.localRepoPath.trim()
               : undefined,
+          githubPrUrl:
+            config.environment === 'github' && config.githubPrUrl.trim()
+              ? config.githubPrUrl.trim()
+              : undefined,
+          githubToken: githubTokenForReview,
         }),
       })
 
@@ -598,6 +894,7 @@ function App() {
               logsEndRef={logsEndRef}
               autoApproveSandbox={autoApproveSandbox}
               setAutoApproveSandbox={setAutoApproveSandbox}
+              postGitHubComment={postGitHubComment}
             />
           </motion.div>
         ) : (

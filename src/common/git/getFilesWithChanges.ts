@@ -2,7 +2,9 @@ import { exec } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { LineRange, ReviewFile } from '../types'
+import { getGitHubEnvVariables } from '../../config'
+import { fetchGitHubPullRequestDiff } from '../github/pullRequestApi'
+import { type LineRange, PlatformOptions, type ReviewFile } from '../types'
 import { logger } from '../utils/logger'
 import { getDiffCommand, getGitRoot } from './getChangedFilesNames'
 
@@ -84,32 +86,41 @@ export const getFilesWithChanges = async (
 ): Promise<ReviewFile[]> => {
   try {
     const gitRoot = await getGitRoot()
-    const diffCommand = getDiffCommand(isCi)
-    logger.debug('Running combined diff command:', diffCommand)
+    const githubEnv = isCi === PlatformOptions.GITHUB ? getGitHubEnvVariables() : null
 
-    const rawCombinedDiff = await new Promise<string>((resolve, reject) => {
-      // Consider increasing maxBuffer for very large diffs
-      exec(
-        diffCommand,
-        { cwd: gitRoot, maxBuffer: 1024 * 1024 * 10 }, // 10MB buffer
-        (error, stdout, stderr) => {
-          if (error) {
-            return reject(
-              new Error(`Failed to execute git diff. Error: ${error.message}`)
+    const rawCombinedDiff = githubEnv?.pullRequestDiff
+      ? githubEnv.pullRequestDiff
+      : githubEnv?.pullRequest
+        ? await fetchGitHubPullRequestDiff({
+            pullRequest: githubEnv.pullRequest,
+            token: githubEnv.githubToken || undefined,
+          })
+        : await new Promise<string>((resolve, reject) => {
+            const diffCommand = getDiffCommand(isCi)
+            logger.debug('Running combined diff command:', diffCommand)
+
+            // Consider increasing maxBuffer for very large diffs
+            exec(
+              diffCommand,
+              { cwd: gitRoot, maxBuffer: 1024 * 1024 * 10 }, // 10MB buffer
+              (error, stdout, stderr) => {
+                if (error) {
+                  return reject(
+                    new Error(`Failed to execute git diff. Error: ${error.message}`)
+                  )
+                }
+                // stderr might contain non-error messages from git
+                if (stderr?.toLowerCase().includes('error')) {
+                  logger.error('Git diff command stderr error:', stderr)
+                  // Decide if stderr errors should be fatal
+                  // return reject(new Error(`Git diff command error: ${stderr}`));
+                } else if (stderr) {
+                  logger.debug('Git diff command stderr info:', stderr)
+                }
+                resolve(stdout)
+              }
             )
-          }
-          // stderr might contain non-error messages from git
-          if (stderr?.toLowerCase().includes('error')) {
-            logger.error('Git diff command stderr error:', stderr)
-            // Decide if stderr errors should be fatal
-            // return reject(new Error(`Git diff command error: ${stderr}`));
-          } else if (stderr) {
-            logger.debug('Git diff command stderr info:', stderr)
-          }
-          resolve(stdout)
-        }
-      )
-    })
+          })
 
     if (!rawCombinedDiff.trim()) {
       logger.warn(

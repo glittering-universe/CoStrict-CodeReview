@@ -2,9 +2,12 @@ import { exec } from 'node:child_process'
 import { relative } from 'node:path'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { getGitHubEnvVariables } from '../../../config'
 import { getDiffCommand } from '../../git/getChangedFilesNames'
 import { getGitRoot } from '../../git/getChangedFilesNames'
+import { fetchGitHubPullRequestDiff } from '../../github/pullRequestApi'
 import type { PlatformProvider } from '../../platform/provider'
+import { PlatformOptions } from '../../types'
 import { logger } from '../../utils/logger'
 
 const resolveMaxDiffChars = (): number => {
@@ -32,6 +35,35 @@ const truncateWithHeadTail = (
   }
 }
 
+const extractDiffForFile = (
+  combinedDiff: string,
+  relativePath: string
+): string | null => {
+  const lines = combinedDiff.split('\n')
+  const headerRegex = /^diff --git a\/(.+) b\/(.+)$/
+
+  let collecting = false
+  let buffer: string[] = []
+
+  for (const line of lines) {
+    const headerMatch = line.match(headerRegex)
+    if (headerMatch) {
+      if (collecting) {
+        return buffer.join('\n')
+      }
+      buffer = [line]
+      collecting = headerMatch[2] === relativePath
+      continue
+    }
+
+    if (buffer.length > 0) {
+      buffer.push(line)
+    }
+  }
+
+  return collecting ? buffer.join('\n') : null
+}
+
 export const createReadDiffTool = (platformProvider: PlatformProvider) =>
   tool({
     description:
@@ -42,7 +74,6 @@ export const createReadDiffTool = (platformProvider: PlatformProvider) =>
     execute: async ({ path }) => {
       try {
         const platformOption = platformProvider.getPlatformOption()
-        const diffCommandBase = getDiffCommand(platformOption)
         const maxDiffChars = resolveMaxDiffChars()
         const gitRoot = await getGitRoot()
 
@@ -78,6 +109,28 @@ export const createReadDiffTool = (platformProvider: PlatformProvider) =>
           relativePath = normalizedPath.replace(/\\/g, '/')
         }
 
+        if (platformOption === PlatformOptions.GITHUB) {
+          const githubEnv = getGitHubEnvVariables()
+          if (githubEnv.pullRequest) {
+            const combinedDiff =
+              githubEnv.pullRequestDiff ??
+              (await fetchGitHubPullRequestDiff({
+                pullRequest: githubEnv.pullRequest,
+                token: githubEnv.githubToken || undefined,
+              }))
+            const extracted = extractDiffForFile(combinedDiff, relativePath)
+            const diff = extracted || 'No changes detected'
+            const { truncated, text } = truncateWithHeadTail(diff, maxDiffChars)
+            if (truncated) {
+              logger.warn(
+                `Diff output for ${path} was truncated to ${maxDiffChars} chars to avoid context overflow.`
+              )
+            }
+            return text
+          }
+        }
+
+        const diffCommandBase = getDiffCommand(platformOption)
         const diffCommand = `${diffCommandBase} -- "${relativePath}"`
 
         return await new Promise<string>((resolve) => {

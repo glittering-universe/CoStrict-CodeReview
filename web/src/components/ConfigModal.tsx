@@ -8,6 +8,7 @@ export interface ConfigSettings {
   environment: string
   baseUrl: string
   localRepoPath: string
+  githubPrUrl: string
 }
 
 type EffectiveLlmConfig = {
@@ -393,9 +394,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         className="settings-select"
                       >
                         <option value="local">本地</option>
-                        <option value="production">生产</option>
-                        <option value="staging">预发布</option>
-                        <option value="development">开发</option>
+                        <option value="github">GitHub PR</option>
                       </select>
                     </div>
                   </div>
@@ -458,6 +457,33 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                             {repoMeta.maxResults ?? localRepos.length} 个仓库。
                           </div>
                         ) : null}
+                      </div>
+                    </div>
+                  )}
+
+                  {localConfig.environment === 'github' && (
+                    <div className="settings-row">
+                      <div className="settings-info">
+                        <label className="settings-label" htmlFor="settings-github-pr">
+                          GitHub PR
+                        </label>
+                        <p className="settings-description">
+                          输入要审查的 Pull Request 链接。
+                        </p>
+                      </div>
+                      <div className="settings-control">
+                        <input
+                          id="settings-github-pr"
+                          type="text"
+                          value={localConfig.githubPrUrl}
+                          onChange={(e) => handleChange('githubPrUrl', e.target.value)}
+                          className="settings-input"
+                          placeholder="https://github.com/owner/repo/pull/123"
+                        />
+                        <div className="settings-hint">
+                          支持：<code>https://github.com/owner/repo/pull/123</code> 或{' '}
+                          <code>owner/repo#123</code>
+                        </div>
                       </div>
                     </div>
                   )}

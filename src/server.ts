@@ -7,6 +7,7 @@ import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
+import { Octokit } from 'octokit'
 import { loadDotenv } from './common/config/dotenv'
 import { loadLlmCredentials, resolveLlmCredentials } from './common/config/llmCredentials'
 import {
@@ -15,6 +16,16 @@ import {
 } from './common/git/getChangedFilesNames'
 import { getFilesWithChanges } from './common/git/getFilesWithChanges'
 import { type LocalRepoScanResult, scanLocalGitRepos } from './common/git/scanLocalRepos'
+import { checkoutGitHubPullRequest } from './common/github/checkoutPullRequest'
+import { resolveGitHubTokenFromGh } from './common/github/githubCli'
+import {
+  parseGitHubPullRequestUrl,
+  toGitHubPullRequestUrl,
+} from './common/github/pullRequest'
+import {
+  fetchGitHubPullRequestDetails,
+  fetchGitHubPullRequestDiff,
+} from './common/github/pullRequestApi'
 import { MCPClientManager } from './common/llm/mcp/client'
 import { createModel } from './common/llm/models'
 import { stripProviderJsonFromText } from './common/llm/stripProviderJson'
@@ -25,8 +36,10 @@ import type {
 } from './common/llm/tools/sandboxExec'
 import { createCachedSubAgentTool } from './common/llm/tools/subAgentCache'
 import { summarizeSubAgentReportForContext } from './common/llm/tools/subAgentSummary'
-import { getPlatformProvider } from './common/platform/factory'
+import { createWebProvider } from './common/platform/web/webProvider'
+import { PlatformOptions } from './common/types'
 import { logger } from './common/utils/logger'
+import { withGitHubEnvVariables } from './config'
 import { reviewAgent } from './review/agent/generate'
 import { constructPrompt } from './review/prompt'
 import { filterFiles } from './review/utils/filterFiles'
@@ -38,6 +51,7 @@ const sandboxWaiters = new Map<
   string,
   { resolve: (response: SandboxExecApprovalResponse) => void }
 >()
+const githubOauthStates = new Map<string, { origin: string; createdAt: number }>()
 
 const normalizeBaseUrl = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim()
@@ -71,6 +85,27 @@ const resolveSandboxExecRepeatLimit = (): number => {
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
   if (Number.isFinite(parsed) && parsed >= 2) return parsed
   return 4
+}
+
+const resolveGitHubOAuthClientId = (): string =>
+  process.env.COSTRICT_GITHUB_OAUTH_CLIENT_ID?.trim() ?? ''
+
+const resolveGitHubOAuthClientSecret = (): string =>
+  process.env.COSTRICT_GITHUB_OAUTH_CLIENT_SECRET?.trim() ?? ''
+
+const resolveGitHubOAuthRedirectUri = (apiOrigin: string): string => {
+  const override = process.env.COSTRICT_GITHUB_OAUTH_REDIRECT_URI?.trim()
+  if (override) return override
+  return `${apiOrigin}/api/github/oauth/callback`
+}
+
+const cleanupGitHubOauthStates = (ttlMs = 10 * 60_000) => {
+  const now = Date.now()
+  for (const [state, entry] of githubOauthStates.entries()) {
+    if (now - entry.createdAt > ttlMs) {
+      githubOauthStates.delete(state)
+    }
+  }
 }
 
 const resolveRepoScanMaxDepth = (): number => {
@@ -727,6 +762,263 @@ app.get('/api/local/repos', async (c) => {
   }
 })
 
+app.get('/api/github/oauth/start', async (c) => {
+  const renderOauthErrorPage = (origin: string, message: string) => {
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GitHub Login Error</title>
+  </head>
+  <body style="font-family: ui-sans-serif, system-ui; padding: 24px; background: #05060a; color: #e2e8f0;">
+    <h1 style="margin: 0 0 12px; font-size: 18px;">GitHub login unavailable</h1>
+    <p style="margin: 0 0 16px; color: #94a3b8;">${message}</p>
+    <p style="margin: 0 0 16px; color: #94a3b8;">You can close this window.</p>
+    <script>
+      (function () {
+        var payload = { type: 'github_oauth_error', message: ${JSON.stringify(message)} };
+        var targetOrigin = ${JSON.stringify(origin)};
+        try {
+          if (window.opener) {
+            window.opener.postMessage(payload, targetOrigin);
+          }
+        } catch (error) {
+          console.error(error);
+        }
+        try { window.close(); } catch (error) {}
+      })();
+    </script>
+  </body>
+</html>`
+
+    return c.html(html, 500)
+  }
+
+  const requestUrl = new URL(c.req.url, 'http://localhost')
+  const originParam = requestUrl.searchParams.get('origin')?.trim()
+  const refererHeader = c.req.header('referer')?.trim()
+  let refererOrigin: string | undefined
+  if (refererHeader) {
+    try {
+      refererOrigin = new URL(refererHeader).origin
+    } catch {
+      refererOrigin = undefined
+    }
+  }
+  const origin = originParam || refererOrigin || new URL(c.req.url).origin
+
+  const clientId = resolveGitHubOAuthClientId()
+  if (!clientId) {
+    return renderOauthErrorPage(
+      origin,
+      'GitHub OAuth is not configured. Set COSTRICT_GITHUB_OAUTH_CLIENT_ID and COSTRICT_GITHUB_OAUTH_CLIENT_SECRET, set GITHUB_TOKEN, or login with GitHub CLI (gh auth login).'
+    )
+  }
+
+  cleanupGitHubOauthStates()
+
+  const apiOrigin = new URL(c.req.url).origin
+  const redirectUri = resolveGitHubOAuthRedirectUri(apiOrigin)
+
+  const state = crypto.randomUUID()
+  githubOauthStates.set(state, { origin, createdAt: Date.now() })
+
+  const authorizeUrl = new URL('https://github.com/login/oauth/authorize')
+  authorizeUrl.searchParams.set('client_id', clientId)
+  authorizeUrl.searchParams.set('redirect_uri', redirectUri)
+  authorizeUrl.searchParams.set('scope', 'public_repo')
+  authorizeUrl.searchParams.set('state', state)
+
+  return c.redirect(authorizeUrl.toString())
+})
+
+app.get('/api/github/oauth/callback', async (c) => {
+  const requestUrl = new URL(c.req.url, 'http://localhost')
+  const code = requestUrl.searchParams.get('code')?.trim() ?? ''
+  const state = requestUrl.searchParams.get('state')?.trim() ?? ''
+
+  if (!code) {
+    return c.text('Missing OAuth code.', 400)
+  }
+  if (!state) {
+    return c.text('Missing OAuth state.', 400)
+  }
+
+  const stateEntry = githubOauthStates.get(state)
+  if (!stateEntry) {
+    return c.text('Invalid or expired OAuth state.', 400)
+  }
+  githubOauthStates.delete(state)
+
+  const renderOauthCallbackErrorPage = (origin: string, message: string) => {
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GitHub Login Error</title>
+  </head>
+  <body style="font-family: ui-sans-serif, system-ui; padding: 24px; background: #05060a; color: #e2e8f0;">
+    <h1 style="margin: 0 0 12px; font-size: 18px;">GitHub login failed</h1>
+    <p style="margin: 0 0 16px; color: #94a3b8;">${message}</p>
+    <p style="margin: 0 0 16px; color: #94a3b8;">You can close this window.</p>
+    <script>
+      (function () {
+        var payload = { type: 'github_oauth_error', message: ${JSON.stringify(message)} };
+        var targetOrigin = ${JSON.stringify(origin)};
+        try {
+          if (window.opener) {
+            window.opener.postMessage(payload, targetOrigin);
+          }
+        } catch (error) {
+          console.error(error);
+        }
+        try { window.close(); } catch (error) {}
+      })();
+    </script>
+  </body>
+</html>`
+
+    return c.html(html, 500)
+  }
+
+  const clientId = resolveGitHubOAuthClientId()
+  const clientSecret = resolveGitHubOAuthClientSecret()
+  if (!clientId || !clientSecret) {
+    return renderOauthCallbackErrorPage(
+      stateEntry.origin,
+      'GitHub OAuth is not configured. Set COSTRICT_GITHUB_OAUTH_CLIENT_ID and COSTRICT_GITHUB_OAUTH_CLIENT_SECRET, set GITHUB_TOKEN, or login with GitHub CLI (gh auth login).'
+    )
+  }
+
+  const apiOrigin = new URL(c.req.url).origin
+  const redirectUri = resolveGitHubOAuthRedirectUri(apiOrigin)
+
+  const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'user-agent': 'costrict-web',
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri,
+    }),
+  })
+
+  const tokenData = (await tokenResponse.json().catch(() => null)) as null | {
+    access_token?: unknown
+    error?: unknown
+    error_description?: unknown
+  }
+
+  const accessToken =
+    tokenData && typeof tokenData.access_token === 'string' ? tokenData.access_token : ''
+
+  if (!tokenResponse.ok || !accessToken) {
+    const err =
+      tokenData && typeof tokenData.error_description === 'string'
+        ? tokenData.error_description
+        : tokenData && typeof tokenData.error === 'string'
+          ? tokenData.error
+          : 'OAuth token exchange failed.'
+    return renderOauthCallbackErrorPage(stateEntry.origin, err)
+  }
+
+  const origin = stateEntry.origin
+
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GitHub Login</title>
+  </head>
+  <body style="font-family: ui-sans-serif, system-ui; padding: 24px; background: #05060a; color: #e2e8f0;">
+    <h1 style="margin: 0 0 12px; font-size: 18px;">GitHub login complete</h1>
+    <p style="margin: 0 0 16px; color: #94a3b8;">You can close this window.</p>
+    <script>
+      (function () {
+        var token = ${JSON.stringify(accessToken)};
+        var targetOrigin = ${JSON.stringify(origin)};
+        try {
+          if (window.opener && token) {
+            window.opener.postMessage({ type: 'github_oauth_token', token: token }, targetOrigin);
+          }
+        } catch (error) {
+          console.error(error);
+        }
+        try { window.close(); } catch (error) {}
+      })();
+    </script>
+  </body>
+</html>`
+
+  return c.html(html)
+})
+
+app.post('/api/github/pr/comment', async (c) => {
+  const authorization = c.req.header('authorization')?.trim() ?? ''
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+  let token = match?.[1]?.trim() ?? ''
+  if (!token) {
+    token = process.env.GITHUB_TOKEN?.trim() ?? ''
+  }
+  if (!token) {
+    token = await resolveGitHubTokenFromGh()
+  }
+  if (!token) {
+    return c.json(
+      {
+        message:
+          'Missing GitHub access token. Configure GitHub OAuth (COSTRICT_GITHUB_OAUTH_CLIENT_ID/COSTRICT_GITHUB_OAUTH_CLIENT_SECRET), set GITHUB_TOKEN, or login with GitHub CLI (gh auth login).',
+      },
+      401
+    )
+  }
+
+  const body = await c.req.json()
+  const rawPrUrl = typeof body.githubPrUrl === 'string' ? body.githubPrUrl.trim() : ''
+  const comment = typeof body.comment === 'string' ? body.comment.trim() : ''
+
+  if (!rawPrUrl) {
+    return c.json({ message: 'Missing GitHub PR URL.' }, 400)
+  }
+  if (!comment) {
+    return c.json({ message: 'Missing comment body.' }, 400)
+  }
+
+  const pullRequest = parseGitHubPullRequestUrl(rawPrUrl)
+  if (!pullRequest) {
+    return c.json({ message: `Invalid GitHub PR URL: ${rawPrUrl}` }, 400)
+  }
+
+  const truncated =
+    comment.length > 60_000
+      ? `${comment.slice(0, 59_999)}…\n\n(Truncated to fit GitHub comment limits.)`
+      : comment
+
+  try {
+    const octokit = new Octokit({ auth: token })
+    const response = await octokit.rest.issues.createComment({
+      owner: pullRequest.owner,
+      repo: pullRequest.repo,
+      issue_number: pullRequest.number,
+      body: truncated,
+    })
+
+    return c.json({ url: response.data.html_url ?? '' })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error(`Failed to post GitHub PR comment: ${message}`)
+    return c.json({ message: `Failed to post GitHub PR comment: ${message}` }, 500)
+  }
+})
+
 app.post('/api/sandbox/decision', async (c) => {
   const { requestId, approved } = await c.req.json()
   const waiter = sandboxWaiters.get(requestId)
@@ -752,17 +1044,44 @@ app.post('/api/review', async (c) => {
     apiKey,
     baseUrl,
     repoPath,
+    githubPrUrl,
+    githubToken,
+    environment,
   } = body
 
   const trimmedBaseUrl =
     typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/$/, '') : undefined
   const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
+  const trimmedGitHubTokenFromBody =
+    typeof githubToken === 'string' ? githubToken.trim() : ''
+  let trimmedGitHubToken =
+    trimmedGitHubTokenFromBody || process.env.GITHUB_TOKEN?.trim() || ''
+  const rawEnvironment = typeof environment === 'string' ? environment.trim() : ''
+
   let effectiveBaseUrl: string | undefined
   let effectiveApiKey: string | undefined
   const rawRepoPath = typeof repoPath === 'string' ? repoPath.trim() : ''
+  const rawGitHubPrUrl = typeof githubPrUrl === 'string' ? githubPrUrl.trim() : ''
+  const gitHubPullRequest = rawGitHubPrUrl
+    ? parseGitHubPullRequestUrl(rawGitHubPrUrl)
+    : null
+  const gitHubPullRequestUrl = gitHubPullRequest
+    ? toGitHubPullRequestUrl(gitHubPullRequest)
+    : null
 
-  let workspaceRoot: string | undefined
-  if (rawRepoPath) {
+  const wantsGitHubReview =
+    rawEnvironment === PlatformOptions.GITHUB || Boolean(rawGitHubPrUrl)
+
+  if (wantsGitHubReview && !rawGitHubPrUrl) {
+    return c.json({ message: 'GitHub PR URL is required.' }, 400)
+  }
+
+  if (rawGitHubPrUrl && !gitHubPullRequest) {
+    return c.json({ message: `Invalid GitHub PR URL: ${rawGitHubPrUrl}` }, 400)
+  }
+
+  let localWorkspaceRoot: string | undefined
+  if (!wantsGitHubReview && rawRepoPath) {
     const resolvedPath = path.resolve(rawRepoPath)
     if (!existsSync(resolvedPath)) {
       return c.json({ message: `Repo path not found: ${resolvedPath}` }, 400)
@@ -778,7 +1097,7 @@ app.post('/api/review', async (c) => {
     }
 
     try {
-      workspaceRoot = await resolveGitRootFromPath(resolvedPath)
+      localWorkspaceRoot = await resolveGitRootFromPath(resolvedPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return c.json({ message: `Repo path is not a git repository: ${message}` }, 400)
@@ -834,10 +1153,10 @@ app.post('/api/review', async (c) => {
       try {
         startHeartbeat()
 
-        if (workspaceRoot) {
+        if (localWorkspaceRoot) {
           await safeWriteSSE({
             type: 'status',
-            message: `Using local repo: ${workspaceRoot}`,
+            message: `Using local repo: ${localWorkspaceRoot}`,
           })
         }
 
@@ -848,10 +1167,12 @@ app.post('/api/review', async (c) => {
         await safeWriteSSE({ type: 'status', message: 'Initializing review...' })
 
         // 1. Get Files
-        logger.debug('Getting platform provider...')
-        const platformProvider = await getPlatformProvider('local')
+        const platformOption = wantsGitHubReview
+          ? PlatformOptions.GITHUB
+          : PlatformOptions.LOCAL
+        const platformProvider = createWebProvider(platformOption)
         logger.debug('Getting files with changes...')
-        const files = await getFilesWithChanges('local')
+        const files = await getFilesWithChanges(platformOption)
         logger.debug(`Found ${files.length} files`)
 
         if (files.length === 0) {
@@ -1528,11 +1849,177 @@ app.post('/api/review', async (c) => {
       }
     }
 
-    if (workspaceRoot) {
-      return withWorkspaceRoot(workspaceRoot, runReview)
+    const runWithWorkspace = async () => {
+      let checkout: Awaited<ReturnType<typeof checkoutGitHubPullRequest>> | null = null
+      let reviewWorkspaceRoot = localWorkspaceRoot
+      let githubEnv: Parameters<typeof withGitHubEnvVariables>[0] | null = null
+
+      let preflightWriteQueue: Promise<boolean> = Promise.resolve(true)
+      let preflightDisconnected = false
+      let preflightHeartbeat: ReturnType<typeof setInterval> | null = null
+
+      const preflightWriteSSE = (data: unknown): Promise<boolean> => {
+        if (preflightDisconnected) {
+          return Promise.resolve(false)
+        }
+
+        const payload = JSON.stringify(data)
+        preflightWriteQueue = preflightWriteQueue.then(async () => {
+          if (preflightDisconnected) return false
+          try {
+            await stream.writeSSE({ data: payload })
+            return true
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            preflightDisconnected = true
+            logger.warn(
+              `SSE preflight write failed (client likely disconnected): ${message}`
+            )
+            return false
+          }
+        })
+
+        return preflightWriteQueue
+      }
+
+      const startPreflightHeartbeat = () => {
+        preflightHeartbeat = setInterval(() => {
+          preflightWriteSSE({ type: 'ping', timestamp: Date.now() }).catch(() => {
+            // Ignore failures; preflightWriteSSE already logs.
+          })
+        }, resolveSsePingIntervalMs())
+      }
+
+      const stopPreflightHeartbeat = () => {
+        if (!preflightHeartbeat) return
+        clearInterval(preflightHeartbeat)
+        preflightHeartbeat = null
+      }
+
+      try {
+        if (wantsGitHubReview && gitHubPullRequest && gitHubPullRequestUrl) {
+          startPreflightHeartbeat()
+
+          const started = await preflightWriteSSE({
+            type: 'status',
+            message: `Preparing GitHub PR review: ${gitHubPullRequestUrl}`,
+          })
+          if (!started) {
+            throw new Error('Client disconnected.')
+          }
+
+          if (!trimmedGitHubToken) {
+            const ghToken = await resolveGitHubTokenFromGh()
+            if (ghToken) {
+              trimmedGitHubToken = ghToken
+              const ok = await preflightWriteSSE({
+                type: 'status',
+                message: 'Using GitHub CLI authentication (gh auth token).',
+              })
+              if (!ok) {
+                throw new Error('Client disconnected.')
+              }
+            }
+          }
+
+          const prDetails = await fetchGitHubPullRequestDetails({
+            pullRequest: gitHubPullRequest,
+            token: trimmedGitHubToken || undefined,
+          })
+
+          const diffStatus = await preflightWriteSSE({
+            type: 'status',
+            message: 'Fetching GitHub PR diff...',
+          })
+          if (!diffStatus) {
+            throw new Error('Client disconnected.')
+          }
+
+          const pullRequestDiff = await fetchGitHubPullRequestDiff({
+            pullRequest: gitHubPullRequest,
+            token: trimmedGitHubToken || undefined,
+          })
+
+          const fetching = await preflightWriteSSE({
+            type: 'status',
+            message: 'Checking out GitHub PR...',
+          })
+          if (!fetching) {
+            throw new Error('Client disconnected.')
+          }
+
+          checkout = await checkoutGitHubPullRequest({
+            cloneUrl: prDetails.cloneUrl,
+            sshUrl: prDetails.sshUrl || undefined,
+            pullRequest: gitHubPullRequest,
+            baseSha: prDetails.baseSha,
+            headSha: prDetails.headSha,
+            token: trimmedGitHubToken || undefined,
+          })
+          reviewWorkspaceRoot = checkout.workspaceRoot
+          githubEnv = {
+            githubSha: checkout.headSha,
+            baseSha: checkout.baseSha,
+            githubToken: trimmedGitHubToken,
+            pullRequest: gitHubPullRequest,
+            pullRequestDiff,
+          }
+
+          await preflightWriteSSE({
+            type: 'status',
+            message: `GitHub PR checkout ready (${checkout.headSha.slice(0, 7)}). Starting review...`,
+          })
+        }
+      } catch (error) {
+        stopPreflightHeartbeat()
+
+        const message = error instanceof Error ? error.message : String(error)
+        const hint = message.includes('API rate limit exceeded')
+          ? ' GitHub API rate limit exceeded. Authenticate with GitHub (UI login) or provide a GitHub token, then retry.'
+          : ''
+        await preflightWriteSSE({
+          type: 'error',
+          message: `Failed to prepare review: ${message}${hint}`,
+        })
+
+        if (checkout) {
+          try {
+            await checkout.cleanup()
+          } catch (cleanupError) {
+            logger.warn(`Failed to cleanup GitHub PR checkout: ${String(cleanupError)}`)
+          }
+        }
+
+        return
+      } finally {
+        stopPreflightHeartbeat()
+      }
+
+      const runReviewWithEnv = async () => {
+        if (githubEnv) {
+          return withGitHubEnvVariables(githubEnv, runReview)
+        }
+        return runReview()
+      }
+
+      try {
+        if (reviewWorkspaceRoot) {
+          await withWorkspaceRoot(reviewWorkspaceRoot, runReviewWithEnv)
+          return
+        }
+        await runReviewWithEnv()
+      } finally {
+        if (checkout) {
+          try {
+            await checkout.cleanup()
+          } catch (cleanupError) {
+            logger.warn(`Failed to cleanup GitHub PR checkout: ${String(cleanupError)}`)
+          }
+        }
+      }
     }
 
-    return runReview()
+    return runWithWorkspace()
   })
 })
 
