@@ -29,10 +29,7 @@ export const lsTool = tool({
   description:
     'List files and directories at a specified path. Supports filtering, recursion, and pagination (skip).',
   parameters: z.object({
-    path: z
-      .string()
-      .describe('The absolute path to list contents from.')
-      .default('.'),
+    path: z.string().describe('The absolute path to list contents from.').default('.'),
     recursive: z
       .boolean()
       .describe('Whether to list contents recursively')
@@ -47,7 +44,9 @@ export const lsTool = tool({
       .describe('Additional glob patterns to ignore (e.g. ["**/*.test.ts"])'),
     skip: z
       .number()
-      .describe('Number of files/directories to skip from the beginning (for pagination).')
+      .describe(
+        'Number of files/directories to skip from the beginning (for pagination).'
+      )
       .default(0),
   }),
   execute: async ({ path: dirPath, recursive, includeHidden, ignore = [], skip = 0 }) => {

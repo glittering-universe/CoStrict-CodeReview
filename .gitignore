@@ -3,6 +3,7 @@ node_modules
 .env
 .shippie/credentials.json
 dist
+plan.md
 **/.cache/*.ts
 !jest.config.js
 *.d.ts

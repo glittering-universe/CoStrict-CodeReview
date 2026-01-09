@@ -63,7 +63,7 @@ export class ScenarioRunner {
       })),
     })
 
-    tools = createTestTools(testConfig, platformProvider, this.model, true, this.maxSteps)
+    tools = createTestTools(testConfig, platformProvider, this.model, true)
 
     // biome-ignore lint/suspicious/noExplicitAny: Testing utility needs flexible types
     let result: GenerateTextResult<Record<string, any>, string>

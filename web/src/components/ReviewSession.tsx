@@ -183,13 +183,15 @@ export function ReviewSession({
   const fileCount = activeSession?.files.length ?? 0
   const stepsCount = timelineEntries.length
   const modelName = activeSession?.modelString ?? '未开始'
+  const subagentsRunning = Boolean(activeSession?.subagentsRunning)
+  const subagentsTotal = activeSession?.subagentsTotal
 
   const shellMotion = {
     initial: { opacity: 0.1, y: 26, scale: 0.98 },
     animate: { opacity: 1, y: 0, scale: 1 },
     exit: { opacity: 0.1, y: -18, scale: 0.98 },
     transition: { type: 'spring', stiffness: 260, damping: 24, mass: 0.7 },
-  }
+  } as const
 
   return (
     <div
@@ -282,19 +284,32 @@ export function ReviewSession({
               <p className="timeline-title">进度更新</p>
               <p className="timeline-subtitle">实时代理状态和工具活动</p>
             </div>
-            <button type="button" onClick={toggleExpandAll} className="ghost-btn">
-              {expandAll ? (
-                <>
-                  <Icon icon="lucide:chevrons-up" width={16} height={16} />
-                  全部折叠
-                </>
-              ) : (
-                <>
-                  <Icon icon="lucide:chevrons-down" width={16} height={16} />
-                  全部展开
-                </>
-              )}
-            </button>
+            <div className="timeline-actions">
+              {subagentsRunning ? (
+                <output className="subagent-preflight-pill" aria-live="polite">
+                  <Icon
+                    icon="lucide:loader-circle"
+                    width={16}
+                    height={16}
+                    className="subagent-preflight-icon"
+                  />
+                  子代理运行中{subagentsTotal ? ` (${subagentsTotal})` : ''}
+                </output>
+              ) : null}
+              <button type="button" onClick={toggleExpandAll} className="ghost-btn">
+                {expandAll ? (
+                  <>
+                    <Icon icon="lucide:chevrons-up" width={16} height={16} />
+                    全部折叠
+                  </>
+                ) : (
+                  <>
+                    <Icon icon="lucide:chevrons-down" width={16} height={16} />
+                    全部展开
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="timeline-list">

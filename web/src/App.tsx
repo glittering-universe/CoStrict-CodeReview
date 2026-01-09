@@ -240,6 +240,26 @@ function App() {
               continue
             }
 
+            if (data.type === 'subagent_preflight') {
+              const state = data.state
+              setSessionsById((prev) => {
+                const current = prev[newSession.id]
+                if (!current) return prev
+                return {
+                  ...prev,
+                  [newSession.id]: {
+                    ...current,
+                    subagentsRunning: state === 'start',
+                    subagentsTotal:
+                      state === 'start' && typeof data.total === 'number'
+                        ? data.total
+                        : current.subagentsTotal,
+                  },
+                }
+              })
+              continue
+            }
+
             newLogs.push({ ...data, timestamp: Date.now() })
 
             if (data.type === 'sandbox_request') {

@@ -12,6 +12,10 @@ The SubAgent tool creates an isolated agent instance that:
 - Always returns a structured report with findings and recommendations
 - Handles resource cleanup automatically
 
+### Preflight concurrency (Web UI)
+
+When using the local web UI (`bun run start:web`), the server runs the four standard sub-agent “preflight” goals in parallel by default. You can tune concurrency (1–4) via `COSTRICT_SUBAGENT_PREFLIGHT_CONCURRENCY`.
+
 ## Usage
 
 ### Basic Usage
@@ -55,6 +59,10 @@ const result = await subAgentTool.execute({
 - 步数限制避免无限循环；默认低步数用于短任务，高步数用于深入分析。
 - 子代理不能继续生成新的子代理（防止递归）。
 - 所有敏感操作（写入、发布）均需人工确认或在受信任环境下运行。
+
+预执行（preflight）并行度（Web UI）：
+- 本地 Web UI（`bun run start:web`）默认并行运行 4 个标准子代理目标。
+- 可通过 `COSTRICT_SUBAGENT_PREFLIGHT_CONCURRENCY` 调整并行度（1–4）。
 
 最佳实践：
 - 明确描述目标并限定目标范围。

@@ -406,9 +406,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         <label className="settings-label" htmlFor="settings-local-repo">
                           本地仓库
                         </label>
-                        <p className="settings-description">
-                          选择需要审查的 Git 仓库。
-                        </p>
+                        <p className="settings-description">选择需要审查的 Git 仓库。</p>
                         {repoMeta?.roots && repoMeta.roots.length > 0 ? (
                           <p className="settings-description">
                             扫描范围：{repoMeta.roots.join(', ')}

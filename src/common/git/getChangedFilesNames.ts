@@ -1,5 +1,5 @@
-import { exec } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { exec } from 'node:child_process'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { getGitHubEnvVariables } from '../../config'
@@ -31,8 +31,7 @@ export const withWorkspaceRoot = async <T>(
   return workspaceRootStorage.run(normalizedRoot, fn)
 }
 
-export const getWorkspaceRoot = (): string | undefined =>
-  workspaceRootStorage.getStore()
+export const getWorkspaceRoot = (): string | undefined => workspaceRootStorage.getStore()
 
 export const resolveWorkspacePath = (input: string): string => {
   const workspaceRoot = workspaceRootStorage.getStore()

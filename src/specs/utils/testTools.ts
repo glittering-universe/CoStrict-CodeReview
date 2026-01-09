@@ -99,7 +99,9 @@ export const createTestSpawnSubAgentTool = () =>
   tool({
     description: 'Spawn a sub-agent (test stub).',
     parameters: z.object({
-      goal: z.string().describe('The specific goal or task for the sub-agent to accomplish.'),
+      goal: z
+        .string()
+        .describe('The specific goal or task for the sub-agent to accomplish.'),
     }),
     execute: async ({ goal }) => {
       return `## Summary\nStubbed sub-agent report.\n\n## Findings\nGoal received: ${goal}\n\n## Recommendations\nNone (stub).\n\n## Conclusion\nSub-agent stub executed.`
@@ -200,8 +202,7 @@ export const createTestTools = (
   config: TestToolConfig,
   platformProvider: PlatformProvider,
   model?: LanguageModelV1,
-  includeSubAgent = true,
-  maxSteps = 25
+  includeSubAgent = true
 ): Record<string, Tool> => {
   const tools = {
     ...getBaseTools({

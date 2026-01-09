@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -49,10 +50,7 @@ export const scanLocalGitRepos = async (
   options: LocalRepoScanOptions
 ): Promise<LocalRepoScanResult> => {
   const roots = normalizeRoots(options.roots)
-  const ignoredDirs = new Set([
-    ...DEFAULT_IGNORED_DIRS,
-    ...(options.ignoredDirs ?? []),
-  ])
+  const ignoredDirs = new Set([...DEFAULT_IGNORED_DIRS, ...(options.ignoredDirs ?? [])])
 
   const repos = new Map<string, LocalGitRepo>()
   let truncated = false
@@ -68,7 +66,7 @@ export const scanLocalGitRepos = async (
     const current = stack.pop()
     if (!current) break
 
-    let entries
+    let entries: Dirent[]
     try {
       entries = await readdir(current.path, { withFileTypes: true })
     } catch {

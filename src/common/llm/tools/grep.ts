@@ -5,6 +5,23 @@ import { glob } from 'tinyglobby'
 import { z } from 'zod'
 import { resolveWorkspacePath } from '../../git/getChangedFilesNames'
 
+type FileEntry = {
+  displayPath: string
+  fullPath: string
+}
+
+const toDisplayPath = (filePath: string): string => {
+  const workspaceRoot = resolveWorkspacePath('.')
+  if (!workspaceRoot || !path.isAbsolute(workspaceRoot) || !path.isAbsolute(filePath)) {
+    return filePath
+  }
+  const relativePath = path.relative(workspaceRoot, filePath)
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return filePath
+  }
+  return relativePath
+}
+
 export const grepTool = tool({
   description:
     'Search for a pattern in files. Returns matching lines with line numbers and file paths.',
@@ -33,23 +50,45 @@ export const grepTool = tool({
   }) => {
     try {
       const resolvedSearchPath = resolveWorkspacePath(searchPath)
-      const files = await glob(globPattern, {
-        cwd: resolvedSearchPath,
-        onlyFiles: true,
-        dot: false,
-      })
+      const entries: FileEntry[] = []
+
+      let searchStat: Awaited<ReturnType<typeof fs.stat>> | null = null
+      try {
+        searchStat = await fs.stat(resolvedSearchPath)
+      } catch {
+        searchStat = null
+      }
+
+      if (searchStat?.isFile()) {
+        entries.push({
+          displayPath: toDisplayPath(resolvedSearchPath),
+          fullPath: resolvedSearchPath,
+        })
+      } else {
+        const files = await glob(globPattern, {
+          cwd: resolvedSearchPath,
+          onlyFiles: true,
+          dot: false,
+        })
+
+        for (const file of files) {
+          entries.push({
+            displayPath: file,
+            fullPath: path.resolve(resolvedSearchPath, file),
+          })
+        }
+      }
 
       const regex = new RegExp(pattern, ignoreCase ? 'i' : '')
 
       const results: string[] = []
       let resultCount = 0
 
-      for (const file of files) {
+      for (const entry of entries) {
         if (resultCount >= maxResults) break
 
         try {
-          const fullPath = path.resolve(resolvedSearchPath, file)
-          const content = await fs.readFile(fullPath, 'utf-8')
+          const content = await fs.readFile(entry.fullPath, 'utf-8')
           const lines = content.split('\n')
 
           for (let i = 0; i < lines.length; i++) {
@@ -57,7 +96,7 @@ export const grepTool = tool({
 
             const line = lines[i]
             if (regex.test(line)) {
-              results.push(`${file}:${i + 1}: ${line.trim()}`)
+              results.push(`${entry.displayPath}:${i + 1}: ${line.trim()}`)
               resultCount++
             }
           }
@@ -67,7 +106,7 @@ export const grepTool = tool({
       }
 
       if (results.length === 0) {
-        return `No matches found for pattern "${pattern}" in ${files.length} files.`
+        return `No matches found for pattern "${pattern}" in ${entries.length} files.`
       }
 
       return `Found ${results.length} matches for pattern "${pattern}":\n\n${results.join('\n')}`

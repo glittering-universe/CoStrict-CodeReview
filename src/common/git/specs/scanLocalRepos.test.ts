@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { scanLocalGitRepos } from '../scanLocalRepos'
 
@@ -68,10 +68,7 @@ describe('scanLocalGitRepos', () => {
 
     try {
       const parentRepo = await makeGitDirRepo(tempRoot, 'parent')
-      const nestedRepo = await makeGitDirRepo(
-        path.join(parentRepo, 'nested'),
-        'child'
-      )
+      const nestedRepo = await makeGitDirRepo(path.join(parentRepo, 'nested'), 'child')
 
       const result = await scanLocalGitRepos({
         roots: [parentRepo],

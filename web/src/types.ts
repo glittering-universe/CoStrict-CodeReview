@@ -30,6 +30,7 @@ export type Log = {
     | 'files'
     | 'step'
     | 'complete'
+    | 'subagent_preflight'
     | 'sandbox_request'
     | 'sandbox_run_start'
     | 'sandbox_run_output'
@@ -39,6 +40,8 @@ export type Log = {
   files?: string[]
   step?: Step
   result?: string
+  state?: 'start' | 'end'
+  total?: number
   requestId?: string
   toolCallId?: string
   command?: string
@@ -68,4 +71,6 @@ export type ReviewSession = {
   isReviewing: boolean
   startTime: number
   completedAt?: number
+  subagentsRunning?: boolean
+  subagentsTotal?: number
 }

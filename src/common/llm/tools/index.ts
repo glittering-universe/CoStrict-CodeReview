@@ -70,6 +70,7 @@ export const getAllTools = async (
     tools.spawn_subagent = createSubAgentTool(options.model, options.maxSteps, {
       sandboxConfirm: options.sandboxConfirm,
       sandboxOnEvent: options.sandboxOnEvent,
+      platformProvider: options.platformProvider,
     })
   }
 

@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { generateText, tool, type Tool } from 'ai'
+import { type Tool, generateText, tool } from 'ai'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
@@ -14,10 +14,7 @@ import {
   withWorkspaceRoot,
 } from './common/git/getChangedFilesNames'
 import { getFilesWithChanges } from './common/git/getFilesWithChanges'
-import {
-  scanLocalGitRepos,
-  type LocalRepoScanResult,
-} from './common/git/scanLocalRepos'
+import { type LocalRepoScanResult, scanLocalGitRepos } from './common/git/scanLocalRepos'
 import { MCPClientManager } from './common/llm/mcp/client'
 import { createModel } from './common/llm/models'
 import { stripProviderJsonFromText } from './common/llm/stripProviderJson'
@@ -26,6 +23,8 @@ import type {
   SandboxExecApprovalResponse,
   SandboxExecOnEvent,
 } from './common/llm/tools/sandboxExec'
+import { createCachedSubAgentTool } from './common/llm/tools/subAgentCache'
+import { summarizeSubAgentReportForContext } from './common/llm/tools/subAgentSummary'
 import { getPlatformProvider } from './common/platform/factory'
 import { logger } from './common/utils/logger'
 import { reviewAgent } from './review/agent/generate'
@@ -493,131 +492,108 @@ const truncateText = (value: string, maxLength = 2000): string => {
 const formatSubAgentContext = (reports: SubAgentReport[]): string => {
   if (reports.length === 0) return ''
   const blocks = reports.map((report) => {
-    const trimmed = truncateText(report.report.trim())
+    const summary = summarizeSubAgentReportForContext(report.report)
+    const trimmed = summary
+      ? truncateText(summary.trim())
+      : truncateText(report.report.trim())
     return `Goal: ${report.goal}\nReport:\n${trimmed}`
   })
   return `\n\nSub-agent reports (pre-run):\n${blocks.join('\n\n')}\n`
 }
 
-const createCachedSubAgentTool = (
-  baseTool: Tool,
-  cache: Map<string, string>
-): Tool =>
-  tool({
-    description: `${baseTool.description ?? 'Spawn a sub-agent.'} (cached)`,
-    parameters: baseTool.parameters,
-    execute: async (args, options) => {
-      const parsed = isRecord(args) ? args : {}
-      const goal = typeof parsed.goal === 'string' ? parsed.goal : ''
-      if (goal) {
-        if (cache.has(goal)) {
-          return cache.get(goal) ?? ''
-        }
-        const prefixMatch = goal.match(/^\[[^\]]+\]/)?.[0]
-        if (prefixMatch) {
-          const cachedGoal = Array.from(cache.keys()).find((key) =>
-            key.startsWith(prefixMatch)
-          )
-          if (cachedGoal) {
-            return cache.get(cachedGoal) ?? ''
-          }
-        }
-      }
-      if (!baseTool.execute) {
-        return 'spawn_subagent unavailable for this run.'
-      }
-      const result = await baseTool.execute(args as never, options)
-      if (goal && typeof result === 'string') {
-        cache.set(goal, result)
-      }
-      return result
-    },
-  })
+const resolveSubAgentPreflightConcurrency = (): number => {
+  const raw = process.env.COSTRICT_SUBAGENT_PREFLIGHT_CONCURRENCY
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  if (Number.isFinite(parsed) && parsed >= 1) {
+    return Math.min(parsed, 4)
+  }
+  return 4
+}
 
 const runSubAgentPreflight = async ({
-  model,
   spawnTool,
-  maxSteps,
   fileContext,
   safeWriteSSE,
 }: {
-  model: ReturnType<typeof createModel>
   spawnTool: Tool
-  maxSteps: number
   fileContext: string
   safeWriteSSE: (payload: unknown) => Promise<boolean>
 }): Promise<SubAgentReport[]> => {
-  const fileNote = fileContext.trim()
-    ? ` Focus on changed files: ${fileContext}.`
-    : ''
-  const goalLines = subAgentGoals
-    .map((item, index) => `${index + 1}) ${item.goal}${fileNote}`)
-    .join('\n')
+  const fileNote = fileContext.trim() ? ` Focus on changed files: ${fileContext}.` : ''
+  const goals = subAgentGoals.map((item) => `${item.goal}${fileNote}`)
 
-  const prompt = `Spawn exactly four sub-agents in parallel using spawn_subagent.
-Rules:
-- Use ONLY spawn_subagent tool calls.
-- Call spawn_subagent once per goal in the same step.
-- Do NOT call any other tools.
-- Do NOT output any text.
+  const toolCalls = goals.map((goal) => ({
+    type: 'tool-call',
+    toolCallId: crypto.randomUUID(),
+    toolName: 'spawn_subagent',
+    args: { goal },
+  }))
 
-Goals:
-${goalLines}
-`
-
-  const reports: SubAgentReport[] = []
-  const goalByToolCallId = new Map<string, string>()
-
-  await reviewAgent(
-    prompt,
-    model,
-    Math.min(maxSteps, 2),
-    { spawn_subagent: spawnTool },
-    undefined,
-    async (step) => {
-      const toolCalls = normalizeToolCalls(step.toolCalls)
-      const toolResults = normalizeToolResults(step.toolResults)
-
-      for (const call of toolCalls) {
-        if (typeof call.toolName !== 'string') continue
-        if (normalizeToolNameKey(call.toolName) !== 'spawn_subagent') continue
-        if (typeof call.toolCallId !== 'string') continue
-        const args = isRecord(call.args) ? call.args : {}
-        const goal = typeof args.goal === 'string' ? args.goal : ''
-        if (goal) {
-          goalByToolCallId.set(call.toolCallId, goal)
-        }
-      }
-
-      for (const result of toolResults) {
-        if (typeof result.toolName !== 'string') continue
-        if (normalizeToolNameKey(result.toolName) !== 'spawn_subagent') continue
-        if (typeof result.toolCallId !== 'string') continue
-        const raw = result.result
-        const report =
-          typeof raw === 'string' ? raw : raw === undefined ? '' : JSON.stringify(raw)
-        const goal = goalByToolCallId.get(result.toolCallId)
-        if (goal && report) {
-          reports.push({ goal, report })
-        }
-      }
-
-      const ok = await safeWriteSSE({
-        type: 'step',
-        step: {
-          toolCalls,
-          toolResults,
-          text: '',
-          usage: step.usage,
-        },
-      })
-      if (!ok) {
-        throw new Error('Client disconnected.')
-      }
+  const executeCall = async (
+    call: (typeof toolCalls)[number]
+  ): Promise<SubAgentReport | null> => {
+    const args: Record<string, unknown> = isRecord(call.args) ? call.args : {}
+    const goal = typeof args.goal === 'string' ? args.goal : ''
+    if (!goal) return null
+    if (!spawnTool.execute) {
+      return { goal, report: 'spawn_subagent unavailable for this run.' }
     }
-  )
+    try {
+      const raw = await spawnTool.execute(args as never, {
+        toolCallId: call.toolCallId,
+        messages: [],
+      })
+      const report =
+        typeof raw === 'string' ? raw : raw === undefined ? '' : JSON.stringify(raw)
+      return report ? { goal, report } : null
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { goal, report: `Error executing sub-agent: ${message}` }
+    }
+  }
 
-  return reports
+  const reports = new Array<SubAgentReport | null>(toolCalls.length).fill(null)
+  const concurrency = Math.min(resolveSubAgentPreflightConcurrency(), toolCalls.length)
+
+  if (concurrency <= 1) {
+    for (const [index, call] of toolCalls.entries()) {
+      reports[index] = await executeCall(call)
+    }
+  } else {
+    let nextIndex = 0
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= toolCalls.length) return
+        reports[index] = await executeCall(toolCalls[index])
+      }
+    })
+    await Promise.all(workers)
+  }
+
+  const toolResults = toolCalls.map((call, index) => ({
+    type: 'tool-result',
+    toolCallId: call.toolCallId,
+    toolName: call.toolName,
+    args: call.args,
+    result: reports[index]?.report ?? '',
+  }))
+
+  const ok = await safeWriteSSE({
+    type: 'step',
+    step: {
+      toolCalls,
+      toolResults,
+      text: '',
+      usage: undefined,
+    },
+  })
+  if (!ok) {
+    throw new Error('Client disconnected.')
+  }
+
+  return reports.filter((report): report is SubAgentReport => Boolean(report?.report))
 }
 
 const inferSeverity = (text: string): 'low' | 'medium' | 'high' | 'critical' => {
@@ -794,10 +770,7 @@ app.post('/api/review', async (c) => {
     try {
       const stat = statSync(resolvedPath)
       if (!stat.isDirectory()) {
-        return c.json(
-          { message: `Repo path must be a directory: ${resolvedPath}` },
-          400
-        )
+        return c.json({ message: `Repo path must be a directory: ${resolvedPath}` }, 400)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -808,10 +781,7 @@ app.post('/api/review', async (c) => {
       workspaceRoot = await resolveGitRootFromPath(resolvedPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return c.json(
-        { message: `Repo path is not a git repository: ${message}` },
-        400
-      )
+      return c.json({ message: `Repo path is not a git repository: ${message}` }, 400)
     }
   }
 
@@ -967,13 +937,39 @@ app.post('/api/review', async (c) => {
               message: 'Spawning sub-agents...',
             })
 
-            const reports = await runSubAgentPreflight({
-              model,
-              spawnTool: tools.spawn_subagent,
-              maxSteps,
-              fileContext: filteredFiles.map((file) => file.fileName).join(', '),
-              safeWriteSSE,
+            const started = await safeWriteSSE({
+              type: 'subagent_preflight',
+              state: 'start',
+              total: subAgentGoals.length,
             })
+            if (!started) {
+              throw new Error('Client disconnected.')
+            }
+
+            let reports: SubAgentReport[] = []
+            let preflightError: unknown | null = null
+            let endedOk = true
+            try {
+              reports = await runSubAgentPreflight({
+                spawnTool: tools.spawn_subagent,
+                fileContext: filteredFiles.map((file) => file.fileName).join(', '),
+                safeWriteSSE,
+              })
+            } catch (error) {
+              preflightError = error
+            } finally {
+              endedOk = await safeWriteSSE({
+                type: 'subagent_preflight',
+                state: 'end',
+              })
+            }
+
+            if (!endedOk) {
+              throw new Error('Client disconnected.')
+            }
+            if (preflightError !== null) {
+              throw preflightError
+            }
 
             for (const report of reports) {
               subAgentCache.set(report.goal, report.report)
@@ -998,6 +994,9 @@ app.post('/api/review', async (c) => {
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
+            if (message === 'Client disconnected.') {
+              throw error
+            }
             logger.warn(`Sub-agent preflight failed: ${message}`)
             await safeWriteSSE({
               type: 'status',
@@ -1061,7 +1060,9 @@ app.post('/api/review', async (c) => {
                 toolCalls,
                 toolResults,
                 text:
-                  typeof step.text === 'string' ? stripProviderJsonFromText(step.text) : '',
+                  typeof step.text === 'string'
+                    ? stripProviderJsonFromText(step.text)
+                    : '',
                 usage: step.usage,
               },
             })
@@ -1171,7 +1172,8 @@ app.post('/api/review', async (c) => {
 
             for (const candidate of candidates) {
               const toolCallId = `bug-${crypto.randomUUID()}`
-              const title = candidate.length > 90 ? `${candidate.slice(0, 89)}…` : candidate
+              const title =
+                candidate.length > 90 ? `${candidate.slice(0, 89)}…` : candidate
               const args = {
                 title,
                 description: `**Auto-extracted from review summary (fallback).**\n\n${candidate}`,
@@ -1492,7 +1494,9 @@ app.post('/api/review', async (c) => {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         const cause =
-          error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined
+          error instanceof Error
+            ? (error as Error & { cause?: unknown }).cause
+            : undefined
         const causeMessage =
           cause instanceof Error ? cause.message : cause ? String(cause) : undefined
         const fullMessage = [
